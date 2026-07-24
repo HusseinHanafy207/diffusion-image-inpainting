@@ -163,18 +163,19 @@ diffusion-image-inpainting/
 
 ## Setup
 
-### 1. Install my DDPM package (sibling repo)
+### 1. Install my DDPM package
 
-This project expects my local [`generative-models`](../../generative-models) checkout with the `generative_models.ddpm` package:
+This project depends on [`generative-models`](https://github.com/HusseinHanafy207/generative-models) (specifically `generative_models.ddpm`). Clone it and install in editable mode:
 
 ```bash
-# From this repo's parent layout, e.g.:
-#   Summer2026/generative-models
-#   Summer2026/Projects/diffusion-image-inpainting
+git clone https://github.com/HusseinHanafy207/generative-models.git
+pip install -e ./generative-models
+```
 
-pip install -e "C:/Summer2026/generative-models"
-# or, relative to this project:
-pip install -e ../../generative-models
+If `generative-models` already lives next to this repo, point `pip` at that checkout instead:
+
+```bash
+pip install -e /path/to/generative-models
 ```
 
 ### 2. Install this project

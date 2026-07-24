@@ -8,6 +8,6 @@ pyyaml>=6.0
 scikit-image>=0.22
 Pillow>=10.0
 
-# Install sibling DDPM package first, e.g.:
-#   pip install -e ../../generative-models
-# or from an absolute path to my generative-models checkout.
+# Install generative-models first (editable), e.g.:
+#   pip install -e /path/to/generative-models
+# Repo: https://github.com/HusseinHanafy207/generative-models
