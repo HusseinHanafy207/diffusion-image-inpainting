@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Visualize mask types and damaged MNIST digits.
+"""Visualize mask types and damaged MNIST digits via InpaintingDataset.
 
 Usage:
     python scripts/visualize_masks.py --out-dir outputs/figures
@@ -12,9 +12,12 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import torch
-from torchvision import datasets, transforms
+from torch.utils.data import Subset
 
-from image_inpainting.datasets import apply_mask
+from image_inpainting.datasets import (
+    InpaintingDataset,
+    get_mnist_dataset,
+)
 from image_inpainting.masks import MaskGenerator, MaskType
 
 
@@ -34,31 +37,18 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def load_mnist_images(data_dir: Path, num_examples: int, seed: int) -> torch.Tensor:
-    dataset = datasets.MNIST(
-        root=str(data_dir),
-        train=True,
-        download=True,
-        transform=transforms.ToTensor(),
-    )
-    generator = torch.Generator().manual_seed(seed)
-    indices = torch.randperm(len(dataset), generator=generator)[:num_examples]
-    images = torch.stack([dataset[int(i)][0] for i in indices], dim=0)
-    return images
-
-
 def main() -> None:
     args = parse_args()
     torch.manual_seed(args.seed)
 
-    images = load_mnist_images(args.data_dir, args.num_examples, args.seed)
-    gen = MaskGenerator(image_size=args.image_size, center_ratio=args.center_ratio)
-    mask_types = list(MaskType)
+    base = get_mnist_dataset(args.data_dir, train=True)
+    generator = torch.Generator().manual_seed(args.seed)
+    indices = torch.randperm(len(base), generator=generator)[: args.num_examples].tolist()
+    subset = Subset(base, indices)
 
+    mask_types = list(MaskType)
     n_rows = len(mask_types)
     n_cols = args.num_examples
-    # For each mask type: original | mask | damaged  → 3 panels per example would be wide.
-    # Layout: rows = mask types, cols = examples; each cell shows damaged with mask overlay.
     fig, axes = plt.subplots(
         n_rows,
         n_cols * 3,
@@ -68,14 +58,15 @@ def main() -> None:
 
     col_titles = ["original", "mask", "damaged"]
     for row, mask_type in enumerate(mask_types):
-        masks = gen(batch_size=args.num_examples, mask_type=mask_type)
-        damaged = apply_mask(images, masks)
+        gen = MaskGenerator(image_size=args.image_size, center_ratio=args.center_ratio)
+        ds = InpaintingDataset(subset, gen, mask_type=mask_type)
 
         for col in range(n_cols):
+            original, masked, mask = ds[col]
             panels = (
-                images[col, 0].numpy(),
-                masks[col, 0].numpy(),
-                damaged[col, 0].numpy(),
+                original[0].numpy(),
+                mask[0].numpy(),
+                masked[0].numpy(),
             )
             for k, panel in enumerate(panels):
                 ax = axes[row][col * 3 + k]
@@ -87,7 +78,10 @@ def main() -> None:
                 if row == 0:
                     ax.set_title(f"{col_titles[k]}\n#{col}", fontsize=9)
 
-    fig.suptitle("MaskGenerator — MNIST (1 = known, 0 = missing)", fontsize=13)
+    fig.suptitle(
+        "InpaintingDataset — MNIST (original → mask → damaged)",
+        fontsize=13,
+    )
     fig.tight_layout()
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
