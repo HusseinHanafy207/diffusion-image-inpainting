@@ -221,7 +221,7 @@ I will work in this order. Modules already exist as API stubs with `NotImplement
 | Stage | Deliverable | Module / script |
 |-------|-------------|-----------------|
 | **0** | Project layout + README + import from DDPM | ✅ this scaffold |
-| **1** | Flexible `MaskGenerator` | `masks/generator.py`, `visualize_masks.py` |
+| **1** | Flexible `MaskGenerator` | ✅ `masks/generator.py`, `visualize_masks.py` |
 | **2** | `InpaintingDataset` → `(x, masked, mask)` | `datasets/inpainting.py` |
 | **3** | Condition U-Net on masked image + mask | `models/conditioned_unet.py` |
 | **4** | Training loop (mask → diffuse → MSE) | `trainers/trainer.py`, `scripts/train.py` |
@@ -232,7 +232,7 @@ I will work in this order. Modules already exist as API stubs with `NotImplement
 ### Phase checklist
 
 - [x] Stage 0 — repo structure, configs, stubs, README
-- [ ] Stage 1 — masks (center, rectangle, brush, holes)
+- [x] Stage 1 — masks (center, rectangle, brush, holes)
 - [ ] Stage 2 — damaged images via `InpaintingDataset`
 - [ ] Stage 3 — conditioned U-Net input channels
 - [ ] Stage 4 — training
