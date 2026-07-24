@@ -1,0 +1,53 @@
+# Stage 1 — MNIST inpainting (imports generative_models.ddpm)
+
+dataset: MNIST
+data_dir: data/raw
+image_size: 28
+image_channels: 1
+
+# Masks (1 = known, 0 = missing)
+mask_types:
+  - center
+  - rectangle
+  - brush
+  - holes
+# Optional center-square relative size (fraction of image side)
+center_mask_ratio: 0.4
+
+# Training
+batch_size: 64
+epochs: 50
+learning_rate: 0.0002
+optimizer: Adam
+
+# Diffusion schedule — same as generative-models DDPM (Ho et al., 2020)
+num_timesteps: 1000
+beta_start: 0.0001
+beta_end: 0.02
+
+# Conditioned U-Net: in_channels = image + masked_image + mask = 3 for MNIST
+base_channels: 64
+channel_mult: [1, 2, 4]
+num_res_blocks: 2
+attention_resolutions: [7]
+dropout: 0.1
+
+# Device
+device: auto
+
+# Saving
+checkpoint_dir: outputs/checkpoints
+sample_dir: outputs/samples
+figure_dir: outputs/figures
+log_dir: outputs/logs
+train_metrics_file: train_metrics.csv
+val_metrics_file: val_metrics.csv
+checkpoint_every: 5
+
+# Evaluation
+metrics:
+  - psnr
+  - ssim
+  # - lpips  # enable after `pip install -e ".[eval]"`
+
+seed: 42
