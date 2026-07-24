@@ -207,6 +207,7 @@ python -c "import image_inpainting; print(image_inpainting.__version__)"
 
 ```bash
 python scripts/visualize_masks.py --out-dir outputs/figures
+python scripts/verify_conditioned_unet.py
 python scripts/train.py --config configs/mnist.yaml --epochs 1
 python scripts/inpaint.py --checkpoint outputs/checkpoints/latest.pt --mask-type center
 python scripts/evaluate.py --checkpoint outputs/checkpoints/latest.pt
@@ -223,7 +224,7 @@ I will work in this order. Modules already exist as API stubs with `NotImplement
 | **0** | Project layout + README + import from DDPM | ✅ this scaffold |
 | **1** | Flexible `MaskGenerator` | ✅ `masks/generator.py`, `visualize_masks.py` |
 | **2** | `InpaintingDataset` → `(x, masked, mask)` | ✅ `datasets/inpainting.py` |
-| **3** | Condition U-Net on masked image + mask | `models/conditioned_unet.py` |
+| **3** | Condition U-Net on masked image + mask | ✅ `models/conditioned_unet.py` |
 | **4** | Training loop (mask → diffuse → MSE) | `trainers/trainer.py`, `scripts/train.py` |
 | **5** | Reverse inpainting + known-pixel reinsertion | `diffusion/inpaint_sampler.py`, `scripts/inpaint.py` |
 | **6** | Visual + PSNR / SSIM (+ LPIPS later) | `evaluation/metrics.py`, `scripts/evaluate.py` |
@@ -234,7 +235,7 @@ I will work in this order. Modules already exist as API stubs with `NotImplement
 - [x] Stage 0 — repo structure, configs, stubs, README
 - [x] Stage 1 — masks (center, rectangle, brush, holes)
 - [x] Stage 2 — damaged images via `InpaintingDataset`
-- [ ] Stage 3 — conditioned U-Net input channels
+- [x] Stage 3 — conditioned U-Net input channels
 - [ ] Stage 4 — training
 - [ ] Stage 5 — inference with `x = m⊙x₀ + (1−m)⊙x̂`
 - [ ] Stage 6 — evaluation metrics
