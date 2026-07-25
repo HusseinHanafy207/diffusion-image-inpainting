@@ -229,3 +229,6 @@ outputs/**
 *.pt
 *.pth
 *.ckpt
+
+# Personal reflection notes (publish at end of project)
+docs/challenges-log.md

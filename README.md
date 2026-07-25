@@ -21,14 +21,17 @@ That is the usual research-codebase pattern: keep the generative core reusable, 
 ## Table of contents
 
 1. [Idea](#idea)
-2. [How this relates to my DDPM](#how-this-relates-to-my-ddpm)
-3. [Pipeline](#pipeline)
-4. [Project structure](#project-structure)
-5. [Setup](#setup)
-6. [Implementation roadmap](#implementation-roadmap)
-7. [Dataset progression](#dataset-progression)
-8. [Papers (read as I build)](#papers-read-as-i-build)
-9. [License](#license)
+2. [Method](#method)
+3. [Results (MNIST)](#results-mnist)
+4. [How this relates to my DDPM](#how-this-relates-to-my-ddpm)
+5. [Pipeline](#pipeline)
+6. [Project structure](#project-structure)
+7. [Setup](#setup)
+8. [Usage](#usage)
+9. [Implementation roadmap](#implementation-roadmap)
+10. [Dataset progression](#dataset-progression)
+11. [Papers (read as I build)](#papers-read-as-i-build)
+12. [License](#license)
 
 ---
 
@@ -43,34 +46,115 @@ Original          Mask (1=known)       Damaged            Inpainted
 ██████████        1111111111           ██████████         ██████████
 ```
 
+**Scope.** MNIST is the first end-to-end stage so I can validate the method quickly.
+I trained until the noise-prediction loss clearly plateaued (**epoch 40**), saved
+that checkpoint, and stopped — I am not chasing small MNIST score gains. Next
+steps are proper metrics (PSNR / SSIM) and harder datasets.
+
+---
+
+## Method
+
+### Conditioned DDPM
+
+Standard DDPM trains a U-Net to predict noise \(\varepsilon\) in
+\(x_t = \sqrt{\bar\alpha_t}\,x_0 + \sqrt{1-\bar\alpha_t}\,\varepsilon\).
+For inpainting I keep that loss, but the network also sees what is known:
+
+```text
+input = concat(x_t, masked_image, mask)   # 3 channels on MNIST
+predict ε̂  →  MSE(ε̂, ε)
+```
+
+- `masked_image` = \(x_0 \odot m\) (zeros in the hole)
+- `mask` \(m\): **1 = known**, **0 = missing**
+
+So the model is a **mask-conditioned denoiser**, not an unconditional generator
+that I only constrain at test time. Training still forward-diffuses the *full*
+clean image; the mask only changes what the U-Net observes.
+
+### RePaint sampling
+
+At inference I start from pure noise and run the reverse chain. After every
+reverse step I force known pixels to agree with the observation — the idea
+from [RePaint](https://arxiv.org/abs/2201.09865). The hole stays free; the
+known region is locked.
+
+### Noisy known-pixel reinsertion
+
+The naive lock uses **clean** \(x_0\) every step:
+
+```text
+x ← m ⊙ x₀ + (1 − m) ⊙ x̂     # wrong at high t
+```
+
+At large \(t\) the hole is still noisy while known pixels would be sharp.
+That clean/noisy boundary never appears in training, so the U-Net is asked
+to denoise an out-of-distribution canvas.
+
+The correct lock matches **noise level** to the current timestep by
+re-noising the observation with the same forward process \(q\):
+
+```text
+x_{t-1} = m ⊙ q(x₀, t−1) + (1 − m) ⊙ x̂_{t-1}
+```
+
+Only at \(t = 0\) are known pixels exactly the clean observation.
+
+### Resampling
+
+Noise-matched reinsertion fixes distribution mismatch, but the hole can still
+be poorly *harmonized* with the known region. RePaint’s resampling schedule
+periodically jumps **forward** in diffusion time (add noise for `j` steps),
+then denoises again, repeating `r` times (`jump_length`, `jump_n_sample` in
+the CLI). That lets the unknown region renegotiate with the known pixels
+before finishing the reverse chain.
+
+Trade-off: larger `j` / `r` improves harmonization and multiplies wall-clock
+cost (full \(T=1000\), \(j=10\), \(r=10\) is heavy on CPU).
+
+---
+
+## Results (MNIST)
+
 ### Training
 
-Same noise-prediction objective as standard DDPM, with extra conditioning:
+Conditioned U-Net (~16.2M params), \(T = 1000\), batch size 64, Adam
+\(lr = 2\times10^{-4}\), mixed mask types. Trained on Colab GPU; checkpoints
+and logs live under `outputs/` locally (gitignored).
 
-```
-original → mask → damaged → forward diffuse → UNet(x_t, masked, mask) → MSE(ε̂, ε)
-```
+| Checkpoint | Val loss | Note |
+|------------|----------|------|
+| Epoch 1 | 0.0076 | Warm start |
+| Epoch 20 | 0.0029 | Already near plateau |
+| **Epoch 40** (`latest.pt`) | **0.0026** | Stopped here — clearly converged |
 
-### Inference (the important line)
+From ~epoch 20 onward, val loss only wobbles in a narrow band (~0.0026–0.0029).
+Extra epochs past 40 were not worth the time for this stage.
 
-Start from noise, run reverse diffusion, and **after every step** reinsert
-known pixels at the **same noise level** (not clean ``x_0`` until ``t = 0``):
+### Masks
 
-```text
-x = mask * q(original, t-1) + (1 - mask) * generated
-```
+<p align="center">
+  <img src="docs/assets/mask_types_mnist.png" alt="MNIST mask types" width="720" />
+</p>
 
-Only the hole is free to change. Everything else is locked to a
-**noise-matched** copy of the observation (RePaint-style):
+### Inpainting (center mask, epoch-40 weights)
 
-```text
-x_{t-1} = mask * q(original, t-1) + (1 - mask) * generated
-```
+Noise-matched RePaint stitch (epoch-20 preview still useful for comparison):
 
-Using clean ``original`` pixels at high ``t`` creates a harsh clean/noisy
-boundary the U-Net never saw during training. RePaint **resampling**
-(forward jumps of length ``j``, repeated ``r`` times) further harmonizes
-the hole with the known region.
+<p align="center">
+  <img src="docs/assets/inpaint_center_noise_matched.png" alt="Center inpainting with noise-matched reinsertion" width="420" />
+</p>
+
+With resampling on the converged checkpoint (`j=10`, `r=5`, preview \(T=250\)):
+
+<p align="center">
+  <img src="docs/assets/inpaint_center_repaint_j10r5.png" alt="Center inpainting epoch 40 with RePaint resampling" width="420" />
+</p>
+
+Known pixels match the observation exactly. Remaining mistakes are mostly
+**ambiguous holes** (e.g. 5↔6) where the visible rim fits more than one digit —
+not seam / noise-mismatch artifacts.
 
 ---
 
@@ -115,12 +199,19 @@ flowchart TB
         unet --> loss["MSE(ε̂, ε)"]
     end
 
-    subgraph phase5 ["Phase 5 — Infer"]
-        xm2["Damaged + noise in hole"] --> rev["Reverse step"]
-        rev --> fix["x ← m⊙x₀ + (1−m)⊙x"]
-        fix --> rev
-        fix --> out["Inpainted image"]
+    subgraph phase5 ["Phase 5 — Infer (RePaint)"]
+        noise["Pure noise"] --> rev["Reverse step + ε̂"]
+        rev --> fix["x ← m⊙q(x₀,t−1) + (1−m)⊙x̂"]
+        fix --> jump{"Resample?\nforward +j"}
+        jump -->|yes| rev
+        jump -->|done| out["Inpainted image"]
     end
+```
+
+Training path in short:
+
+```text
+original → mask → damaged → forward diffuse → UNet(x_t, masked, mask) → MSE(ε̂, ε)
 ```
 
 ### U-Net input (MNIST)
@@ -141,6 +232,8 @@ flowchart TB
 | Brush strokes | Scratches / strokes |
 | Random holes | Scattered missing pixels |
 
+See the grid under [Results](#results-mnist).
+
 ---
 
 ## Project structure
@@ -149,7 +242,7 @@ flowchart TB
 diffusion-image-inpainting/
 ├── configs/
 │   └── mnist.yaml              # Stage 1 hyperparameters
-├── docs/assets/                # README figures (added as I train)
+├── docs/assets/                # README figures (masks + sample grids)
 ├── data/                       # Datasets (gitignored)
 ├── notebooks/                  # Optional exploration
 ├── outputs/                    # Checkpoints, samples, logs (gitignored)
@@ -214,41 +307,56 @@ python -c "from generative_models.ddpm import UNet, NoiseScheduler; print('DDPM 
 python -c "import image_inpainting; print(image_inpainting.__version__)"
 ```
 
-### Planned CLIs (stubs for now)
+---
+
+## Usage
 
 ```bash
+# Mask sanity grid
 python scripts/visualize_masks.py --out-dir outputs/figures
-python scripts/verify_conditioned_unet.py
-python scripts/train.py --config configs/mnist.yaml --epochs 1
+
+# Train / resume (I stopped at epoch 40 when val loss plateaued)
+python scripts/train.py --config configs/mnist.yaml --epochs 40
+python scripts/train.py --resume outputs/checkpoints/latest.pt --epochs 40
+
+# Inpaint — default checkpoint is epoch 40 (`latest.pt`)
+# r=1 disables resampling; paper-ish defaults are j=10, r=10
 python scripts/inpaint.py --checkpoint outputs/checkpoints/latest.pt --mask-type center
+python scripts/inpaint.py --checkpoint outputs/checkpoints/epoch_040.pt \
+  --mask-type center --jump-length 10 --jump-n-sample 10
+
+# Evaluate (Phase 6)
 python scripts/evaluate.py --checkpoint outputs/checkpoints/latest.pt
 ```
+
+On Colab, point `--checkpoint-dir`, `--log-dir`, `--sample-dir`, and `--data-dir`
+at Drive so disconnects do not wipe the run.
 
 ---
 
 ## Implementation roadmap
 
-I will work in this order. Modules already exist as API stubs with `NotImplementedError` where logic belongs.
+I build in this order:
 
 | Stage | Deliverable | Module / script |
 |-------|-------------|-----------------|
-| **0** | Project layout + README + import from DDPM | ✅ this scaffold |
+| **0** | Project layout + README + import from DDPM | ✅ scaffold |
 | **1** | Flexible `MaskGenerator` | ✅ `masks/generator.py`, `visualize_masks.py` |
 | **2** | `InpaintingDataset` → `(x, masked, mask)` | ✅ `datasets/inpainting.py` |
 | **3** | Condition U-Net on masked image + mask | ✅ `models/conditioned_unet.py` |
-| **4** | Training loop (mask → diffuse → MSE) | ✅ `trainers/trainer.py`, `scripts/train.py` |
-| **5** | Reverse inpainting + known-pixel reinsertion | ✅ `diffusion/inpaint_sampler.py`, `scripts/inpaint.py` |
+| **4** | Training loop (mask → diffuse → MSE) | ✅ trained to epoch 40 (converged) |
+| **5** | RePaint inference (noise-match + resampling) | ✅ `diffusion/inpaint_sampler.py`, `scripts/inpaint.py` |
 | **6** | Visual + PSNR / SSIM (+ LPIPS later) | `evaluation/metrics.py`, `scripts/evaluate.py` |
 | **7** | Harder datasets → medical | new configs under `configs/` |
 
 ### Phase checklist
 
-- [x] Stage 0 — repo structure, configs, stubs, README
+- [x] Stage 0 — repo structure, configs, README
 - [x] Stage 1 — masks (center, rectangle, brush, holes)
 - [x] Stage 2 — damaged images via `InpaintingDataset`
 - [x] Stage 3 — conditioned U-Net input channels
-- [x] Stage 4 — training
-- [x] Stage 5 — inference with RePaint-style `x = m⊙q(x₀,t−1) + (1−m)⊙x̂` + resampling (`j`, `r`)
+- [x] Stage 4 — training (stopped at epoch 40; val loss ~0.0026)
+- [x] Stage 5 — RePaint noise-matched stitch + resampling (`j`, `r`)
 - [ ] Stage 6 — evaluation metrics
 - [ ] Stage 7 — Fashion-MNIST → CelebA → Places365 → medical
 
@@ -258,7 +366,7 @@ I will work in this order. Modules already exist as API stubs with `NotImplement
 
 I will not jump straight to medical images. I will use the same pipeline and raise difficulty:
 
-1. **MNIST** — I already have loaders and a trained DDPM; iterate fast  
+1. **MNIST** — pipeline validated; checkpoint at epoch 40  
 2. **Fashion-MNIST** — edges and textures  
 3. **CelebA** — structure and identity  
 4. **Places365** — diverse natural scenes  
