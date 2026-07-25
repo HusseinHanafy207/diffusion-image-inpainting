@@ -68,7 +68,9 @@ x_{t-1} = mask * q(original, t-1) + (1 - mask) * generated
 ```
 
 Using clean ``original`` pixels at high ``t`` creates a harsh clean/noisy
-boundary the U-Net never saw during training.
+boundary the U-Net never saw during training. RePaint **resampling**
+(forward jumps of length ``j``, repeated ``r`` times) further harmonizes
+the hole with the known region.
 
 ---
 
@@ -82,7 +84,7 @@ boundary the U-Net never saw during training.
 | MaskGenerator | **this repo** | Create known/missing masks |
 | InpaintingDataset | **this repo** | `(original, masked, mask)` |
 | ConditionedUNet | **this repo** | Concat `[x_t \| masked \| mask]` |
-| Inpaint sampler | **this repo** | Reverse steps + pixel reinsertion |
+| Inpaint sampler | **this repo** | RePaint reverse + resampling (`j`, `r`) |
 | PSNR / SSIM / LPIPS | **this repo** | Evaluation |
 
 I do **not** copy DDPM source into this tree. I install the sibling package and import it.
@@ -246,7 +248,7 @@ I will work in this order. Modules already exist as API stubs with `NotImplement
 - [x] Stage 2 — damaged images via `InpaintingDataset`
 - [x] Stage 3 — conditioned U-Net input channels
 - [x] Stage 4 — training
-- [x] Stage 5 — inference with RePaint-style `x = m⊙q(x₀,t−1) + (1−m)⊙x̂`
+- [x] Stage 5 — inference with RePaint-style `x = m⊙q(x₀,t−1) + (1−m)⊙x̂` + resampling (`j`, `r`)
 - [ ] Stage 6 — evaluation metrics
 - [ ] Stage 7 — Fashion-MNIST → CelebA → Places365 → medical
 

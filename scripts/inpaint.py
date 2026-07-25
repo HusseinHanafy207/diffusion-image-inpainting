@@ -52,6 +52,18 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional fewer reverse steps for a quick preview (default: full T)",
     )
+    parser.add_argument(
+        "--jump-length",
+        type=int,
+        default=10,
+        help="RePaint forward jump length j (paper default 10)",
+    )
+    parser.add_argument(
+        "--jump-n-sample",
+        type=int,
+        default=10,
+        help="RePaint resample count r (paper default 10). Use 1 to disable.",
+    )
     return parser.parse_args()
 
 
@@ -109,8 +121,12 @@ def main() -> None:
     data_dir = args.data_dir or config.get("data_dir", "data/raw")
     image_size = int(config.get("image_size", 28))
 
+    effective_t = args.timesteps if args.timesteps is not None else scheduler.num_timesteps
     print(f"Loaded checkpoint from epoch {epoch}")
-    print(f"Device: {device} | T={scheduler.num_timesteps} | mask={args.mask_type}")
+    print(
+        f"Device: {device} | T={effective_t} | mask={args.mask_type} | "
+        f"jump_length={args.jump_length} | jump_n_sample={args.jump_n_sample}"
+    )
 
     base = get_mnist_dataset(data_dir, train=False)
     generator = torch.Generator().manual_seed(args.seed)
@@ -143,6 +159,8 @@ def main() -> None:
         masks_b,
         original=originals_b,
         num_timesteps=args.timesteps,
+        jump_length=args.jump_length,
+        jump_n_sample=args.jump_n_sample,
         show_progress=True,
     )
 
@@ -152,13 +170,24 @@ def main() -> None:
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     epoch_tag = f"{epoch:03d}" if isinstance(epoch, int) else str(epoch)
-    out_path = args.out_dir / f"inpaint_{args.mask_type}_epoch_{epoch_tag}.png"
+    resample_tag = (
+        f"_j{args.jump_length}r{args.jump_n_sample}"
+        if args.jump_n_sample > 1
+        else ""
+    )
+    out_path = (
+        args.out_dir / f"inpaint_{args.mask_type}_epoch_{epoch_tag}{resample_tag}.png"
+    )
+    title = f"Inpainting ({args.mask_type}, epoch {epoch}"
+    if args.jump_n_sample > 1:
+        title += f", RePaint j={args.jump_length} r={args.jump_n_sample}"
+    title += ")"
     save_comparison_grid(
         originals_b,
         masked_b,
         result,
         out_path,
-        title=f"Inpainting ({args.mask_type}, epoch {epoch})",
+        title=title,
     )
     print(f"Saved comparison grid to {out_path}")
 
