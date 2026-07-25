@@ -53,13 +53,22 @@ original → mask → damaged → forward diffuse → UNet(x_t, masked, mask) �
 
 ### Inference (the important line)
 
-Start from noise in the missing region, run reverse diffusion, and **after every step** reinsert known pixels:
+Start from noise, run reverse diffusion, and **after every step** reinsert
+known pixels at the **same noise level** (not clean ``x_0`` until ``t = 0``):
 
 ```text
-x = mask * original + (1 - mask) * generated
+x = mask * q(original, t-1) + (1 - mask) * generated
 ```
 
-Only the hole is free to change. Everything else is locked to the observation.
+Only the hole is free to change. Everything else is locked to a
+**noise-matched** copy of the observation (RePaint-style):
+
+```text
+x_{t-1} = mask * q(original, t-1) + (1 - mask) * generated
+```
+
+Using clean ``original`` pixels at high ``t`` creates a harsh clean/noisy
+boundary the U-Net never saw during training.
 
 ---
 
@@ -226,7 +235,7 @@ I will work in this order. Modules already exist as API stubs with `NotImplement
 | **2** | `InpaintingDataset` → `(x, masked, mask)` | ✅ `datasets/inpainting.py` |
 | **3** | Condition U-Net on masked image + mask | ✅ `models/conditioned_unet.py` |
 | **4** | Training loop (mask → diffuse → MSE) | ✅ `trainers/trainer.py`, `scripts/train.py` |
-| **5** | Reverse inpainting + known-pixel reinsertion | `diffusion/inpaint_sampler.py`, `scripts/inpaint.py` |
+| **5** | Reverse inpainting + known-pixel reinsertion | ✅ `diffusion/inpaint_sampler.py`, `scripts/inpaint.py` |
 | **6** | Visual + PSNR / SSIM (+ LPIPS later) | `evaluation/metrics.py`, `scripts/evaluate.py` |
 | **7** | Harder datasets → medical | new configs under `configs/` |
 
@@ -237,7 +246,7 @@ I will work in this order. Modules already exist as API stubs with `NotImplement
 - [x] Stage 2 — damaged images via `InpaintingDataset`
 - [x] Stage 3 — conditioned U-Net input channels
 - [x] Stage 4 — training
-- [ ] Stage 5 — inference with `x = m⊙x₀ + (1−m)⊙x̂`
+- [x] Stage 5 — inference with RePaint-style `x = m⊙q(x₀,t−1) + (1−m)⊙x̂`
 - [ ] Stage 6 — evaluation metrics
 - [ ] Stage 7 — Fashion-MNIST → CelebA → Places365 → medical
 
