@@ -54,6 +54,5 @@ checkpoint_every: 5
 metrics:
   - psnr
   - ssim
-  # - lpips  # enable after `pip install -e ".[eval]"`
 
 seed: 42

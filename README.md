@@ -156,6 +156,30 @@ Known pixels match the observation exactly. Remaining mistakes are mostly
 **ambiguous holes** (e.g. 5↔6) where the visible rim fits more than one digit —
 not seam / noise-mismatch artifacts.
 
+### Quantitative eval (Phase 6)
+
+Held-out MNIST, center mask, epoch-40 checkpoint, RePaint
+`j=10`, `r=5`, preview \(T=250\), **32** images (seed 42).
+
+| | PSNR ↑ | SSIM ↑ |
+|--|--------|--------|
+| **Input** (damaged vs GT) | 12.87 | 0.662 |
+| **Output** (inpainted vs GT) | **19.26 ± 3.31** | **0.889 ± 0.063** |
+
+Hole-only PSNR (missing pixels only): **4.76 → 11.14** (input → output).
+
+Comparison layout: ground truth | input | output
+
+<p align="center">
+  <img src="docs/assets/eval_center_gt_input_output.png" alt="Eval grid ground truth input output" width="420" />
+</p>
+
+```bash
+python scripts/evaluate.py --checkpoint outputs/checkpoints/epoch_040.pt \
+  --mask-type center --max-samples 32 --timesteps 250 \
+  --jump-length 10 --jump-n-sample 5 --out-dir outputs/eval
+```
+
 ---
 
 ## How this relates to my DDPM
@@ -169,7 +193,7 @@ not seam / noise-mismatch artifacts.
 | InpaintingDataset | **this repo** | `(original, masked, mask)` |
 | ConditionedUNet | **this repo** | Concat `[x_t \| masked \| mask]` |
 | Inpaint sampler | **this repo** | RePaint reverse + resampling (`j`, `r`) |
-| PSNR / SSIM / LPIPS | **this repo** | Evaluation |
+| PSNR / SSIM | **this repo** | Evaluation |
 
 I do **not** copy DDPM source into this tree. I install the sibling package and import it.
 
@@ -259,7 +283,7 @@ diffusion-image-inpainting/
     ├── models/                 # ConditionedUNet → generative_models.ddpm.UNet
     ├── diffusion/              # RePaint-style sampler
     ├── trainers/               # Mask-conditioned training loop
-    ├── evaluation/             # PSNR, SSIM, LPIPS
+    ├── evaluation/             # PSNR, SSIM
     └── utils/                  # YAML config helpers
 ```
 
@@ -293,12 +317,6 @@ pip install -r requirements.txt
 pip install -e ".[dev]"
 ```
 
-Optional perceptual metrics later:
-
-```bash
-pip install -e ".[eval]"
-```
-
 ### 3. Verify imports
 
 ```bash
@@ -325,8 +343,10 @@ python scripts/inpaint.py --checkpoint outputs/checkpoints/latest.pt --mask-type
 python scripts/inpaint.py --checkpoint outputs/checkpoints/epoch_040.pt \
   --mask-type center --jump-length 10 --jump-n-sample 10
 
-# Evaluate (Phase 6)
-python scripts/evaluate.py --checkpoint outputs/checkpoints/latest.pt
+# Evaluate — GT | input | output + PSNR / SSIM
+python scripts/evaluate.py --checkpoint outputs/checkpoints/epoch_040.pt \
+  --mask-type center --max-samples 32 --timesteps 250 \
+  --jump-length 10 --jump-n-sample 5 --out-dir outputs/eval
 ```
 
 On Colab, point `--checkpoint-dir`, `--log-dir`, `--sample-dir`, and `--data-dir`
@@ -346,7 +366,7 @@ I build in this order:
 | **3** | Condition U-Net on masked image + mask | ✅ `models/conditioned_unet.py` |
 | **4** | Training loop (mask → diffuse → MSE) | ✅ trained to epoch 40 (converged) |
 | **5** | RePaint inference (noise-match + resampling) | ✅ `diffusion/inpaint_sampler.py`, `scripts/inpaint.py` |
-| **6** | Visual + PSNR / SSIM (+ LPIPS later) | `evaluation/metrics.py`, `scripts/evaluate.py` |
+| **6** | Visual + PSNR / SSIM | ✅ `evaluation/metrics.py`, `scripts/evaluate.py` |
 | **7** | Harder datasets → medical | new configs under `configs/` |
 
 ### Phase checklist
@@ -357,7 +377,7 @@ I build in this order:
 - [x] Stage 3 — conditioned U-Net input channels
 - [x] Stage 4 — training (stopped at epoch 40; val loss ~0.0026)
 - [x] Stage 5 — RePaint noise-matched stitch + resampling (`j`, `r`)
-- [ ] Stage 6 — evaluation metrics
+- [x] Stage 6 — evaluation metrics (PSNR / SSIM; hole-only PSNR)
 - [ ] Stage 7 — Fashion-MNIST → CelebA → Places365 → medical
 
 ---
