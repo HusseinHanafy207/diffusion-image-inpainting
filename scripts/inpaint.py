@@ -16,7 +16,7 @@ import torch
 from generative_models.utils.device import get_device
 from torch.utils.data import Subset
 
-from image_inpainting.datasets import InpaintingDataset, get_mnist_dataset
+from image_inpainting.datasets import InpaintingDataset, get_base_dataset
 from image_inpainting.diffusion import inpaint, load_inpainting_checkpoint
 from image_inpainting.masks import MaskGenerator, MaskType
 
@@ -124,11 +124,12 @@ def main() -> None:
     effective_t = args.timesteps if args.timesteps is not None else scheduler.num_timesteps
     print(f"Loaded checkpoint from epoch {epoch}")
     print(
-        f"Device: {device} | T={effective_t} | mask={args.mask_type} | "
+        f"Device: {device} | dataset={config.get('dataset', 'MNIST')} | "
+        f"T={effective_t} | mask={args.mask_type} | "
         f"jump_length={args.jump_length} | jump_n_sample={args.jump_n_sample}"
     )
 
-    base = get_mnist_dataset(data_dir, train=False)
+    base = get_base_dataset(str(config.get("dataset", "MNIST")), data_dir, train=False)
     generator = torch.Generator().manual_seed(args.seed)
     indices = torch.randperm(len(base), generator=generator)[: args.num_samples].tolist()
     subset = Subset(base, indices)

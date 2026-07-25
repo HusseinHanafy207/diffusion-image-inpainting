@@ -8,6 +8,7 @@ from torch.utils.data import DataLoader, TensorDataset
 from image_inpainting.datasets import (
     InpaintingDataset,
     apply_mask,
+    get_fashion_mnist_inpainting_dataloaders,
     get_mnist_inpainting_dataloaders,
 )
 from image_inpainting.masks import MaskGenerator, MaskType
@@ -84,6 +85,30 @@ def test_mnist_inpainting_dataloader_shapes() -> None:
     assert masked.shape == (8, 1, 28, 28)
     assert mask.shape == (8, 1, 28, 28)
     assert (masked == original * mask).all()
+
+
+def test_fashion_mnist_inpainting_dataloader_shapes() -> None:
+    torch.manual_seed(0)
+    train_loader, _ = get_fashion_mnist_inpainting_dataloaders(
+        batch_size=8,
+        data_dir="data/raw",
+        mask_generator=MaskGenerator(image_size=28, mask_types=[MaskType.CENTER]),
+        mask_type=MaskType.CENTER,
+    )
+    original, masked, mask = next(iter(train_loader))
+    assert original.shape == (8, 1, 28, 28)
+    assert masked.shape == (8, 1, 28, 28)
+    assert mask.shape == (8, 1, 28, 28)
+    assert (masked == original * mask).all()
+
+
+def test_factory_dispatches_fashion_mnist() -> None:
+    from image_inpainting.datasets import get_base_dataset, normalize_dataset_name
+
+    assert normalize_dataset_name("Fashion-MNIST") == "fashionmnist"
+    ds = get_base_dataset("Fashion-MNIST", "data/raw", train=False)
+    image, _label = ds[0]
+    assert tuple(image.shape) == (1, 28, 28)
 
 
 def test_dataloader_collate_three_tensors() -> None:

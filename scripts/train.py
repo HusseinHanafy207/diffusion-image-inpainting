@@ -17,7 +17,7 @@ import torch
 from generative_models.ddpm import NoiseScheduler
 from generative_models.losses import DDPMLoss
 
-from image_inpainting.datasets import get_mnist_inpainting_dataloaders
+from image_inpainting.datasets import get_inpainting_dataloaders_from_config
 from image_inpainting.masks import build_mask_generator_from_config
 from image_inpainting.models import build_conditioned_unet_from_config
 from image_inpainting.trainers import InpaintingTrainer
@@ -117,10 +117,9 @@ def main() -> None:
         torch.manual_seed(int(config["seed"]))
 
     mask_generator = build_mask_generator_from_config(config)
-    train_loader, val_loader = get_mnist_inpainting_dataloaders(
-        batch_size=int(config["batch_size"]),
-        data_dir=config["data_dir"],
-        mask_generator=mask_generator,
+    train_loader, val_loader = get_inpainting_dataloaders_from_config(
+        config,
+        mask_generator,
         mask_type=args.mask_type,
     )
 
@@ -157,6 +156,7 @@ def main() -> None:
         )
 
     n_params = sum(p.numel() for p in model.parameters())
+    print(f"Dataset: {config.get('dataset', 'MNIST')}")
     print(f"ConditionedUNet parameters: {n_params:,}")
     print(
         f"Training for {config['epochs']} epochs | "

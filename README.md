@@ -265,21 +265,22 @@ See the grid under [Results](#results-mnist).
 ```
 diffusion-image-inpainting/
 ├── configs/
-│   └── mnist.yaml              # Stage 1 hyperparameters
+│   ├── mnist.yaml              # Stage 1 — MNIST
+│   └── fashion_mnist.yaml      # Stage 2 — Fashion-MNIST
 ├── docs/assets/                # README figures (masks + sample grids)
 ├── data/                       # Datasets (gitignored)
 ├── notebooks/                  # Optional exploration
 ├── outputs/                    # Checkpoints, samples, logs (gitignored)
 ├── scripts/
-│   ├── visualize_masks.py      # Phase 1–2 sanity grids
-│   ├── train.py                # Phase 4
-│   ├── inpaint.py              # Phase 5
-│   └── evaluate.py             # Phase 6
+│   ├── visualize_masks.py      # Mask / damage sanity grids
+│   ├── train.py                # Training
+│   ├── inpaint.py              # RePaint inference
+│   └── evaluate.py             # PSNR / SSIM
 ├── tests/
 │   └── test_imports.py         # Package + generative_models.ddpm smoke test
 └── src/image_inpainting/
     ├── masks/                  # MaskGenerator
-    ├── datasets/               # InpaintingDataset
+    ├── datasets/               # MNIST, Fashion-MNIST, InpaintingDataset
     ├── models/                 # ConditionedUNet → generative_models.ddpm.UNet
     ├── diffusion/              # RePaint-style sampler
     ├── trainers/               # Mask-conditioned training loop
@@ -331,11 +332,15 @@ python -c "import image_inpainting; print(image_inpainting.__version__)"
 
 ```bash
 # Mask sanity grid
-python scripts/visualize_masks.py --out-dir outputs/figures
+python scripts/visualize_masks.py --config configs/mnist.yaml
+python scripts/visualize_masks.py --config configs/fashion_mnist.yaml
 
-# Train / resume (I stopped at epoch 40 when val loss plateaued)
+# Train / resume (MNIST stopped at epoch 40 when val loss plateaued)
 python scripts/train.py --config configs/mnist.yaml --epochs 40
 python scripts/train.py --resume outputs/checkpoints/latest.pt --epochs 40
+
+# Fashion-MNIST (Stage 2) — same pipeline, separate output dirs
+python scripts/train.py --config configs/fashion_mnist.yaml --epochs 40
 
 # Inpaint — default checkpoint is epoch 40 (`latest.pt`)
 # r=1 disables resampling; paper-ish defaults are j=10, r=10
@@ -367,7 +372,7 @@ I build in this order:
 | **4** | Training loop (mask → diffuse → MSE) | ✅ trained to epoch 40 (converged) |
 | **5** | RePaint inference (noise-match + resampling) | ✅ `diffusion/inpaint_sampler.py`, `scripts/inpaint.py` |
 | **6** | Visual + PSNR / SSIM | ✅ `evaluation/metrics.py`, `scripts/evaluate.py` |
-| **7** | Harder datasets → medical | new configs under `configs/` |
+| **7** | Harder datasets → medical | ✅ Fashion-MNIST config + loader; CelebA next |
 
 ### Phase checklist
 
@@ -378,7 +383,9 @@ I build in this order:
 - [x] Stage 4 — training (stopped at epoch 40; val loss ~0.0026)
 - [x] Stage 5 — RePaint noise-matched stitch + resampling (`j`, `r`)
 - [x] Stage 6 — evaluation metrics (PSNR / SSIM; hole-only PSNR)
-- [ ] Stage 7 — Fashion-MNIST → CelebA → Places365 → medical
+- [x] Stage 7a — Fashion-MNIST adapter (`configs/fashion_mnist.yaml`)
+- [ ] Stage 7b — train / inpaint / eval on Fashion-MNIST
+- [ ] Stage 7c — CelebA → Places365 → medical
 
 ---
 
@@ -387,12 +394,12 @@ I build in this order:
 I will not jump straight to medical images. I will use the same pipeline and raise difficulty:
 
 1. **MNIST** — pipeline validated; checkpoint at epoch 40  
-2. **Fashion-MNIST** — edges and textures  
+2. **Fashion-MNIST** — edges and textures (config ready; train next)  
 3. **CelebA** — structure and identity  
 4. **Places365** — diverse natural scenes  
 5. **Medical** — once train / inpaint / eval are trustworthy  
 
-Each new dataset should mostly mean a new YAML config and dataloader adapter — not a rewrite.
+Each new dataset is mostly a new YAML config and a small dataloader adapter — not a rewrite. Scripts read `dataset:` from the config.
 
 ---
 

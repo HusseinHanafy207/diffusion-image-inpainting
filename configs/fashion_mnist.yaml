@@ -1,0 +1,58 @@
+# Stage 2 — Fashion-MNIST inpainting (same pipeline as MNIST; richer textures)
+
+dataset: Fashion-MNIST
+data_dir: data/raw
+image_size: 28
+image_channels: 1
+
+# Masks (1 = known, 0 = missing)
+mask_types:
+  - center
+  - rectangle
+  - brush
+  - holes
+center_ratio: 0.4
+rect_min_ratio: 0.2
+rect_max_ratio: 0.5
+brush_num_strokes: [1, 4]
+brush_thickness: [1, 3]
+brush_steps: 12
+holes_num: [3, 12]
+holes_radius: [1, 3]
+
+# Training
+batch_size: 64
+epochs: 40
+learning_rate: 0.0002
+optimizer: Adam
+
+# Diffusion schedule — same as generative-models DDPM (Ho et al., 2020)
+num_timesteps: 1000
+beta_start: 0.0001
+beta_end: 0.02
+
+# Conditioned U-Net: in_channels = image + masked_image + mask = 3
+base_channels: 64
+channel_mult: [1, 2, 4]
+num_res_blocks: 2
+attention_resolutions: [7]
+dropout: 0.1
+
+# Device
+device: auto
+
+# Saving (separate from MNIST so runs do not overwrite each other)
+checkpoint_dir: outputs/fashion_mnist/checkpoints
+sample_dir: outputs/fashion_mnist/samples
+figure_dir: outputs/fashion_mnist/figures
+log_dir: outputs/fashion_mnist/logs
+train_metrics_file: train_metrics.csv
+val_metrics_file: val_metrics.csv
+checkpoint_every: 5
+
+# Evaluation
+metrics:
+  - psnr
+  - ssim
+
+seed: 42
