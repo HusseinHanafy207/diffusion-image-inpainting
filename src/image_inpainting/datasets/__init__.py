@@ -1,5 +1,10 @@
 """Datasets that return (original, masked_image, mask) triples."""
 
+from image_inpainting.datasets.celeba import (
+    get_celeba_dataset,
+    get_celeba_inpainting_dataloaders,
+    get_celeba_inpainting_datasets,
+)
 from image_inpainting.datasets.factory import (
     get_base_dataset,
     get_inpainting_dataloaders,
@@ -22,6 +27,9 @@ __all__ = [
     "InpaintingDataset",
     "apply_mask",
     "get_base_dataset",
+    "get_celeba_dataset",
+    "get_celeba_inpainting_dataloaders",
+    "get_celeba_inpainting_datasets",
     "get_fashion_mnist_dataset",
     "get_fashion_mnist_inpainting_dataloaders",
     "get_fashion_mnist_inpainting_datasets",

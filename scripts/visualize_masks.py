@@ -4,6 +4,7 @@
 Usage:
     python scripts/visualize_masks.py --config configs/mnist.yaml
     python scripts/visualize_masks.py --config configs/fashion_mnist.yaml
+    python scripts/visualize_masks.py --config configs/celeba.yaml
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from torch.utils.data import Subset
 
 from image_inpainting.datasets import InpaintingDataset, get_base_dataset
 from image_inpainting.masks import MaskGenerator, MaskType
-from image_inpainting.utils import load_config
+from image_inpainting.utils import imshow_tensor, load_config
 
 
 def parse_args() -> argparse.Namespace:
@@ -39,6 +40,11 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Center-hole side length as a fraction of image size",
     )
+    parser.add_argument(
+        "--no-download",
+        action="store_true",
+        help="Do not download missing datasets (CelebA)",
+    )
     return parser.parse_args()
 
 
@@ -57,7 +63,13 @@ def main() -> None:
     )
     out_dir = args.out_dir or Path(config.get("figure_dir", "outputs/figures"))
 
-    base = get_base_dataset(dataset_name, data_dir, train=True)
+    base = get_base_dataset(
+        dataset_name,
+        data_dir,
+        train=True,
+        image_size=image_size,
+        download=not args.no_download,
+    )
     generator = torch.Generator().manual_seed(args.seed)
     indices = torch.randperm(len(base), generator=generator)[: args.num_examples].tolist()
     subset = Subset(base, indices)
@@ -79,14 +91,12 @@ def main() -> None:
 
         for col in range(n_cols):
             original, masked, mask = ds[col]
-            panels = (
-                original[0].numpy(),
-                mask[0].numpy(),
-                masked[0].numpy(),
-            )
-            for k, panel in enumerate(panels):
+            for k, panel in enumerate((original, mask, masked)):
                 ax = axes[row][col * 3 + k]
-                ax.imshow(panel, cmap="gray", vmin=0.0, vmax=1.0)
+                if k == 1:
+                    ax.imshow(panel[0].numpy(), cmap="gray", vmin=0.0, vmax=1.0)
+                else:
+                    imshow_tensor(ax, panel)
                 ax.set_xticks([])
                 ax.set_yticks([])
                 if col == 0 and k == 0:

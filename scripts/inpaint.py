@@ -19,6 +19,7 @@ from torch.utils.data import Subset
 from image_inpainting.datasets import InpaintingDataset, get_base_dataset
 from image_inpainting.diffusion import inpaint, load_inpainting_checkpoint
 from image_inpainting.masks import MaskGenerator, MaskType
+from image_inpainting.utils import imshow_tensor
 
 
 def parse_args() -> argparse.Namespace:
@@ -80,14 +81,10 @@ def save_comparison_grid(
     col_titles = ["original", "damaged", "inpainted"]
 
     for i in range(n):
-        panels = (
-            originals[i, 0].cpu().numpy(),
-            masked[i, 0].cpu().numpy(),
-            inpainted[i, 0].cpu().numpy(),
-        )
+        panels = (originals[i], masked[i], inpainted[i])
         for k, panel in enumerate(panels):
             ax = axes[i][k]
-            ax.imshow(panel, cmap="gray", vmin=0.0, vmax=1.0)
+            imshow_tensor(ax, panel)
             ax.set_xticks([])
             ax.set_yticks([])
             if i == 0:
@@ -129,7 +126,12 @@ def main() -> None:
         f"jump_length={args.jump_length} | jump_n_sample={args.jump_n_sample}"
     )
 
-    base = get_base_dataset(str(config.get("dataset", "MNIST")), data_dir, train=False)
+    base = get_base_dataset(
+        str(config.get("dataset", "MNIST")),
+        data_dir,
+        train=False,
+        image_size=image_size,
+    )
     generator = torch.Generator().manual_seed(args.seed)
     indices = torch.randperm(len(base), generator=generator)[: args.num_samples].tolist()
     subset = Subset(base, indices)

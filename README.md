@@ -47,10 +47,11 @@ Original          Mask (1=known)       Damaged            Inpainted
 ██████████        1111111111           ██████████         ██████████
 ```
 
-**Scope.** I validate the pipeline on **MNIST**, then raise difficulty with
-**Fashion-MNIST** (textures) using the same conditioned DDPM + RePaint stack.
-I train until val loss plateaus (~epoch 40), measure PSNR / SSIM, and move on —
-not chase tiny score gains on toy data.
+**Scope.** I validate the pipeline on **MNIST**, raise difficulty with
+**Fashion-MNIST** (textures), then **CelebA** (RGB faces at 64×64) using the
+same conditioned DDPM + RePaint stack. I train until val loss plateaus
+(~epoch 40), measure PSNR / SSIM, and move on — not chase tiny score gains
+on toy data.
 
 ---
 
@@ -330,7 +331,8 @@ See the grid under [Results](#results-mnist).
 diffusion-image-inpainting/
 ├── configs/
 │   ├── mnist.yaml              # Stage 1 — MNIST
-│   └── fashion_mnist.yaml      # Stage 2 — Fashion-MNIST
+│   ├── fashion_mnist.yaml      # Stage 2 — Fashion-MNIST
+│   └── celeba.yaml             # Stage 3 — CelebA (RGB 64×64)
 ├── docs/assets/                # README figures (masks + sample grids)
 ├── data/                       # Datasets (gitignored)
 ├── notebooks/                  # Optional exploration
@@ -344,7 +346,7 @@ diffusion-image-inpainting/
 │   └── test_imports.py         # Package + generative_models.ddpm smoke test
 └── src/image_inpainting/
     ├── masks/                  # MaskGenerator
-    ├── datasets/               # MNIST, Fashion-MNIST, InpaintingDataset
+    ├── datasets/               # MNIST, Fashion-MNIST, CelebA, InpaintingDataset
     ├── models/                 # ConditionedUNet → generative_models.ddpm.UNet
     ├── diffusion/              # RePaint-style sampler
     ├── trainers/               # Mask-conditioned training loop
@@ -398,6 +400,7 @@ python -c "import image_inpainting; print(image_inpainting.__version__)"
 # Mask sanity grid
 python scripts/visualize_masks.py --config configs/mnist.yaml
 python scripts/visualize_masks.py --config configs/fashion_mnist.yaml
+python scripts/visualize_masks.py --config configs/celeba.yaml
 
 # Train / resume (MNIST stopped at epoch 40 when val loss plateaued)
 python scripts/train.py --config configs/mnist.yaml --epochs 40
@@ -419,6 +422,14 @@ python scripts/evaluate.py --config configs/fashion_mnist.yaml \
   --checkpoint outputs/fashion_mnist/checkpoints/epoch_040.pt \
   --mask-type center --max-samples 32 --timesteps 250 \
   --jump-length 10 --jump-n-sample 5 --out-dir outputs/fashion_mnist/eval
+
+# CelebA (Stage 3) — RGB faces at 64×64; first run downloads ~1.4GB
+python scripts/train.py --config configs/celeba.yaml --epochs 40
+python scripts/inpaint.py --config configs/celeba.yaml \
+  --checkpoint outputs/celeba/checkpoints/latest.pt --mask-type center
+python scripts/evaluate.py --config configs/celeba.yaml \
+  --checkpoint outputs/celeba/checkpoints/latest.pt \
+  --mask-type center --max-samples 32 --out-dir outputs/celeba/eval
 ```
 
 On Colab, point `--checkpoint-dir`, `--log-dir`, `--sample-dir`, and `--data-dir`
@@ -439,7 +450,7 @@ I build in this order:
 | **4** | Training loop (mask → diffuse → MSE) | ✅ trained to epoch 40 (converged) |
 | **5** | RePaint inference (noise-match + resampling) | ✅ `diffusion/inpaint_sampler.py`, `scripts/inpaint.py` |
 | **6** | Visual + PSNR / SSIM | ✅ `evaluation/metrics.py`, `scripts/evaluate.py` |
-| **7** | Harder datasets → medical | ✅ Fashion-MNIST trained + eval; CelebA next |
+| **7** | Harder datasets → medical | ✅ Fashion-MNIST done; CelebA config ready |
 
 ### Phase checklist
 
@@ -452,7 +463,9 @@ I build in this order:
 - [x] Stage 6 — evaluation metrics (PSNR / SSIM; hole-only PSNR)
 - [x] Stage 7a — Fashion-MNIST adapter (`configs/fashion_mnist.yaml`)
 - [x] Stage 7b — train / inpaint / eval on Fashion-MNIST (epoch 40; PSNR ~24.1)
-- [ ] Stage 7c — CelebA → Places365 → medical
+- [x] Stage 7c — CelebA adapter (`configs/celeba.yaml`, RGB 64×64, `in_channels=7`)
+- [ ] Stage 7d — train / inpaint / eval on CelebA
+- [ ] Stage 7e — Places365 → medical
 
 ---
 
@@ -462,7 +475,7 @@ I will not jump straight to medical images. I will use the same pipeline and rai
 
 1. **MNIST** — pipeline validated; checkpoint at epoch 40  
 2. **Fashion-MNIST** — done; textures; val ~0.0032, output PSNR ~24.1 / SSIM ~0.87  
-3. **CelebA** — structure and identity  
+3. **CelebA** — RGB faces at 64×64; config + loader ready; train next  
 4. **Places365** — diverse natural scenes  
 5. **Medical** — once train / inpaint / eval are trustworthy  
 

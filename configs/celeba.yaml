@@ -1,0 +1,59 @@
+# Stage 3 — CelebA inpainting (RGB faces, 64×64)
+
+dataset: CelebA
+data_dir: data/raw
+image_size: 64
+image_channels: 3
+
+# Masks (1 = known, 0 = missing)
+mask_types:
+  - center
+  - rectangle
+  - brush
+  - holes
+center_ratio: 0.4
+rect_min_ratio: 0.2
+rect_max_ratio: 0.5
+brush_num_strokes: [1, 4]
+brush_thickness: [2, 5]
+brush_steps: 16
+holes_num: [3, 12]
+holes_radius: [2, 5]
+
+# Training (smaller batch — RGB 64×64 is heavier than MNIST)
+batch_size: 32
+epochs: 40
+learning_rate: 0.0002
+optimizer: Adam
+
+# Diffusion schedule — same as generative-models DDPM (Ho et al., 2020)
+num_timesteps: 1000
+beta_start: 0.0001
+beta_end: 0.02
+
+# Conditioned U-Net: in_channels = 3+3+1 = 7
+# Spatial path: 64 → 32 → 16; attend at 16×16
+base_channels: 64
+channel_mult: [1, 2, 4]
+num_res_blocks: 2
+attention_resolutions: [16]
+dropout: 0.1
+
+# Device
+device: auto
+
+# Saving (separate from MNIST / Fashion-MNIST)
+checkpoint_dir: outputs/celeba/checkpoints
+sample_dir: outputs/celeba/samples
+figure_dir: outputs/celeba/figures
+log_dir: outputs/celeba/logs
+train_metrics_file: train_metrics.csv
+val_metrics_file: val_metrics.csv
+checkpoint_every: 5
+
+# Evaluation
+metrics:
+  - psnr
+  - ssim
+
+seed: 42
