@@ -23,15 +23,16 @@ That is the usual research-codebase pattern: keep the generative core reusable, 
 1. [Idea](#idea)
 2. [Method](#method)
 3. [Results (MNIST)](#results-mnist)
-4. [How this relates to my DDPM](#how-this-relates-to-my-ddpm)
-5. [Pipeline](#pipeline)
-6. [Project structure](#project-structure)
-7. [Setup](#setup)
-8. [Usage](#usage)
-9. [Implementation roadmap](#implementation-roadmap)
-10. [Dataset progression](#dataset-progression)
-11. [Papers (read as I build)](#papers-read-as-i-build)
-12. [License](#license)
+4. [Results (Fashion-MNIST)](#results-fashion-mnist)
+5. [How this relates to my DDPM](#how-this-relates-to-my-ddpm)
+6. [Pipeline](#pipeline)
+7. [Project structure](#project-structure)
+8. [Setup](#setup)
+9. [Usage](#usage)
+10. [Implementation roadmap](#implementation-roadmap)
+11. [Dataset progression](#dataset-progression)
+12. [Papers (read as I build)](#papers-read-as-i-build)
+13. [License](#license)
 
 ---
 
@@ -46,10 +47,10 @@ Original          Mask (1=known)       Damaged            Inpainted
 ██████████        1111111111           ██████████         ██████████
 ```
 
-**Scope.** MNIST is the first end-to-end stage so I can validate the method quickly.
-I trained until the noise-prediction loss clearly plateaued (**epoch 40**), saved
-that checkpoint, and stopped — I am not chasing small MNIST score gains. Next
-steps are proper metrics (PSNR / SSIM) and harder datasets.
+**Scope.** I validate the pipeline on **MNIST**, then raise difficulty with
+**Fashion-MNIST** (textures) using the same conditioned DDPM + RePaint stack.
+I train until val loss plateaus (~epoch 40), measure PSNR / SSIM, and move on —
+not chase tiny score gains on toy data.
 
 ---
 
@@ -178,6 +179,69 @@ Comparison layout: ground truth | input | output
 python scripts/evaluate.py --checkpoint outputs/checkpoints/epoch_040.pt \
   --mask-type center --max-samples 32 --timesteps 250 \
   --jump-length 10 --jump-n-sample 5 --out-dir outputs/eval
+```
+
+---
+
+## Results (Fashion-MNIST)
+
+Same architecture and RePaint settings as MNIST; only the dataset (and output
+dirs under `outputs/fashion_mnist/`) change.
+
+### Training
+
+| Checkpoint | Val loss | Note |
+|------------|----------|------|
+| Epoch 1 | 0.0102 | Higher than MNIST (textures) |
+| Epoch 20 | 0.0036 | Steep drop done |
+| **Epoch 40** (`latest.pt`) | **0.0032** | Plateau; best val ~0.0030 @ epoch 29 |
+
+Val loss sits above MNIST’s ~0.0026 — expected for clothing textures — but the
+curve is clearly converged by epoch 40.
+
+### Masks
+
+<p align="center">
+  <img src="docs/assets/mask_types_fashion_mnist.png" alt="Fashion-MNIST mask types" width="720" />
+</p>
+
+### Inpainting (center mask, epoch-40 weights)
+
+RePaint `j=10`, `r=5`, preview \(T=250\):
+
+<p align="center">
+  <img src="docs/assets/fashion_inpaint_center_j10r5.png" alt="Fashion-MNIST center inpainting RePaint" width="420" />
+</p>
+
+Fills look coherent on boots, trousers, bags, and shirts. Harder cases are thin
+straps / heels where the hole removes structure — still usually shape-plausible.
+
+### Quantitative eval
+
+Held-out Fashion-MNIST, center mask, epoch 40, RePaint `j=10`, `r=5`,
+\(T=250\), **32** images (seed 42).
+
+| | PSNR ↑ | SSIM ↑ |
+|--|--------|--------|
+| **Input** (damaged vs GT) | 12.90 | 0.620 |
+| **Output** (inpainted vs GT) | **24.10 ± 6.14** | **0.869 ± 0.081** |
+
+Hole-only PSNR: **4.79 → 15.98** (input → output).
+
+Full-image PSNR is higher than on MNIST here; garments often have large smooth
+regions that are easier to match in MSE once the silhouette is right, while
+SSIM stays in a similar high range. Spread (±) is larger — some items are easy,
+thin-structure shoes are harder.
+
+<p align="center">
+  <img src="docs/assets/fashion_eval_center_gt_input_output.png" alt="Fashion-MNIST eval GT input output" width="420" />
+</p>
+
+```bash
+python scripts/evaluate.py --config configs/fashion_mnist.yaml \
+  --checkpoint outputs/fashion_mnist/checkpoints/epoch_040.pt \
+  --mask-type center --max-samples 32 --timesteps 250 \
+  --jump-length 10 --jump-n-sample 5 --out-dir outputs/fashion_mnist/eval
 ```
 
 ---
@@ -339,19 +403,22 @@ python scripts/visualize_masks.py --config configs/fashion_mnist.yaml
 python scripts/train.py --config configs/mnist.yaml --epochs 40
 python scripts/train.py --resume outputs/checkpoints/latest.pt --epochs 40
 
-# Fashion-MNIST (Stage 2) — same pipeline, separate output dirs
-python scripts/train.py --config configs/fashion_mnist.yaml --epochs 40
-
-# Inpaint — default checkpoint is epoch 40 (`latest.pt`)
-# r=1 disables resampling; paper-ish defaults are j=10, r=10
-python scripts/inpaint.py --checkpoint outputs/checkpoints/latest.pt --mask-type center
+# Inpaint / evaluate MNIST
 python scripts/inpaint.py --checkpoint outputs/checkpoints/epoch_040.pt \
-  --mask-type center --jump-length 10 --jump-n-sample 10
-
-# Evaluate — GT | input | output + PSNR / SSIM
+  --mask-type center --jump-length 10 --jump-n-sample 5
 python scripts/evaluate.py --checkpoint outputs/checkpoints/epoch_040.pt \
   --mask-type center --max-samples 32 --timesteps 250 \
   --jump-length 10 --jump-n-sample 5 --out-dir outputs/eval
+
+# Fashion-MNIST (Stage 2) — same pipeline, separate output dirs
+python scripts/train.py --config configs/fashion_mnist.yaml --epochs 40
+python scripts/inpaint.py --config configs/fashion_mnist.yaml \
+  --checkpoint outputs/fashion_mnist/checkpoints/epoch_040.pt \
+  --mask-type center --jump-length 10 --jump-n-sample 5
+python scripts/evaluate.py --config configs/fashion_mnist.yaml \
+  --checkpoint outputs/fashion_mnist/checkpoints/epoch_040.pt \
+  --mask-type center --max-samples 32 --timesteps 250 \
+  --jump-length 10 --jump-n-sample 5 --out-dir outputs/fashion_mnist/eval
 ```
 
 On Colab, point `--checkpoint-dir`, `--log-dir`, `--sample-dir`, and `--data-dir`
@@ -372,7 +439,7 @@ I build in this order:
 | **4** | Training loop (mask → diffuse → MSE) | ✅ trained to epoch 40 (converged) |
 | **5** | RePaint inference (noise-match + resampling) | ✅ `diffusion/inpaint_sampler.py`, `scripts/inpaint.py` |
 | **6** | Visual + PSNR / SSIM | ✅ `evaluation/metrics.py`, `scripts/evaluate.py` |
-| **7** | Harder datasets → medical | ✅ Fashion-MNIST config + loader; CelebA next |
+| **7** | Harder datasets → medical | ✅ Fashion-MNIST trained + eval; CelebA next |
 
 ### Phase checklist
 
@@ -384,7 +451,7 @@ I build in this order:
 - [x] Stage 5 — RePaint noise-matched stitch + resampling (`j`, `r`)
 - [x] Stage 6 — evaluation metrics (PSNR / SSIM; hole-only PSNR)
 - [x] Stage 7a — Fashion-MNIST adapter (`configs/fashion_mnist.yaml`)
-- [ ] Stage 7b — train / inpaint / eval on Fashion-MNIST
+- [x] Stage 7b — train / inpaint / eval on Fashion-MNIST (epoch 40; PSNR ~24.1)
 - [ ] Stage 7c — CelebA → Places365 → medical
 
 ---
@@ -394,7 +461,7 @@ I build in this order:
 I will not jump straight to medical images. I will use the same pipeline and raise difficulty:
 
 1. **MNIST** — pipeline validated; checkpoint at epoch 40  
-2. **Fashion-MNIST** — edges and textures (config ready; train next)  
+2. **Fashion-MNIST** — done; textures; val ~0.0032, output PSNR ~24.1 / SSIM ~0.87  
 3. **CelebA** — structure and identity  
 4. **Places365** — diverse natural scenes  
 5. **Medical** — once train / inpaint / eval are trustworthy  
