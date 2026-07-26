@@ -25,6 +25,8 @@ batch_size: 64
 epochs: 40
 learning_rate: 0.0002
 optimizer: Adam
+num_workers: 2
+pin_memory: true
 
 # Diffusion schedule — same as generative-models DDPM (Ho et al., 2020)
 num_timesteps: 1000

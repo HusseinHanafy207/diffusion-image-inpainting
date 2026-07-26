@@ -69,7 +69,13 @@ def parse_args() -> argparse.Namespace:
         "--data-dir",
         type=Path,
         default=None,
-        help="Override data_dir for MNIST download/cache.",
+        help="Override data_dir for dataset download/cache.",
+    )
+    parser.add_argument(
+        "--num-workers",
+        type=int,
+        default=None,
+        help="DataLoader workers (default: config num_workers, else 2 on CUDA / 0 on CPU).",
     )
     return parser.parse_args()
 
@@ -113,6 +119,24 @@ def main() -> None:
     if args.data_dir is not None:
         config["data_dir"] = str(args.data_dir)
 
+    # Resolve device early so pin_memory / worker defaults match the run.
+    from generative_models.utils.device import get_device
+
+    if args.device is None or args.device == "auto":
+        device = get_device()
+        config["device"] = "auto"
+    else:
+        device = torch.device(args.device)
+        config["device"] = args.device
+
+    if args.num_workers is not None:
+        config["num_workers"] = args.num_workers
+    elif "num_workers" not in config:
+        config["num_workers"] = 2 if device.type == "cuda" else 0
+
+    if "pin_memory" not in config:
+        config["pin_memory"] = device.type == "cuda"
+
     if args.resume is None and config.get("seed") is not None:
         torch.manual_seed(int(config["seed"]))
 
@@ -121,6 +145,8 @@ def main() -> None:
         config,
         mask_generator,
         mask_type=args.mask_type,
+        num_workers=int(config["num_workers"]),
+        pin_memory=bool(config["pin_memory"]),
     )
 
     model = build_conditioned_unet_from_config(config)
@@ -157,10 +183,12 @@ def main() -> None:
 
     n_params = sum(p.numel() for p in model.parameters())
     print(f"Dataset: {config.get('dataset', 'MNIST')}")
+    print(f"Device: {device}")
     print(f"ConditionedUNet parameters: {n_params:,}")
     print(
         f"Training for {config['epochs']} epochs | "
-        f"batch_size={config['batch_size']} | lr={config['learning_rate']}"
+        f"batch_size={config['batch_size']} | lr={config['learning_rate']} | "
+        f"num_workers={config['num_workers']} | pin_memory={config['pin_memory']}"
     )
     print()
 

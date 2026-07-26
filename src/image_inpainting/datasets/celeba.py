@@ -8,6 +8,7 @@ from torch.utils.data import DataLoader, Dataset
 from torchvision import datasets, transforms
 
 from image_inpainting.datasets.inpainting import InpaintingDataset
+from image_inpainting.datasets.loader_utils import build_dataloader_kwargs
 from image_inpainting.masks.generator import MaskGenerator, MaskType
 
 
@@ -84,6 +85,7 @@ def get_celeba_inpainting_dataloaders(
     image_size: int = 64,
     mask_type: MaskType | str | None = None,
     num_workers: int = 0,
+    pin_memory: bool = False,
     download: bool = True,
 ) -> tuple[DataLoader, DataLoader]:
     """Train / val loaders yielding ``(original, masked_image, mask)`` batches."""
@@ -94,16 +96,19 @@ def get_celeba_inpainting_dataloaders(
         mask_type=mask_type,
         download=download,
     )
+    loader_kwargs = build_dataloader_kwargs(
+        num_workers=num_workers, pin_memory=pin_memory
+    )
     train_loader = DataLoader(
         train_ds,
         batch_size=batch_size,
         shuffle=True,
-        num_workers=num_workers,
+        **loader_kwargs,
     )
     val_loader = DataLoader(
         val_ds,
         batch_size=batch_size,
         shuffle=False,
-        num_workers=num_workers,
+        **loader_kwargs,
     )
     return train_loader, val_loader

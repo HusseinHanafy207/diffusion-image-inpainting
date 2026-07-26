@@ -153,7 +153,13 @@ def main() -> None:
         MaskGenerator(image_size=image_size),
         mask_type=args.mask_type,
     )
-    loader = DataLoader(ds, batch_size=args.batch_size, shuffle=False)
+    loader = DataLoader(
+        ds,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=int(config.get("num_workers", 0)),
+        pin_memory=device.type == "cuda",
+    )
 
     per_image: list[dict[str, float]] = []
     vis_originals: list[torch.Tensor] = []

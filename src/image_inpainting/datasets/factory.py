@@ -60,6 +60,7 @@ def get_inpainting_dataloaders(
     image_size: int | None = None,
     mask_type: MaskType | str | None = None,
     num_workers: int = 0,
+    pin_memory: bool = False,
     download: bool = True,
 ) -> tuple[DataLoader, DataLoader]:
     """Train / val loaders for the named dataset."""
@@ -71,6 +72,7 @@ def get_inpainting_dataloaders(
             mask_generator,
             mask_type=mask_type,
             num_workers=num_workers,
+            pin_memory=pin_memory,
         )
     if key == "fashionmnist":
         return get_fashion_mnist_inpainting_dataloaders(
@@ -79,6 +81,7 @@ def get_inpainting_dataloaders(
             mask_generator,
             mask_type=mask_type,
             num_workers=num_workers,
+            pin_memory=pin_memory,
         )
     if key == "celeba":
         size = 64 if image_size is None else image_size
@@ -89,6 +92,7 @@ def get_inpainting_dataloaders(
             image_size=size,
             mask_type=mask_type,
             num_workers=num_workers,
+            pin_memory=pin_memory,
             download=download,
         )
     raise ValueError(f"Unknown dataset {dataset!r}. Supported: {_SUPPORTED}")
@@ -99,10 +103,21 @@ def get_inpainting_dataloaders_from_config(
     mask_generator: MaskGenerator,
     *,
     mask_type: MaskType | str | None = None,
-    num_workers: int = 0,
+    num_workers: int | None = None,
+    pin_memory: bool | None = None,
     download: bool = True,
 ) -> tuple[DataLoader, DataLoader]:
     """Build loaders using ``config['dataset']``, ``batch_size``, ``data_dir``."""
+    workers = (
+        int(num_workers)
+        if num_workers is not None
+        else int(config.get("num_workers", 0))
+    )
+    pin = (
+        bool(pin_memory)
+        if pin_memory is not None
+        else bool(config.get("pin_memory", False))
+    )
     return get_inpainting_dataloaders(
         str(config.get("dataset", "MNIST")),
         batch_size=int(config["batch_size"]),
@@ -110,6 +125,7 @@ def get_inpainting_dataloaders_from_config(
         mask_generator=mask_generator,
         image_size=int(config.get("image_size", 28)),
         mask_type=mask_type,
-        num_workers=num_workers,
+        num_workers=workers,
+        pin_memory=pin,
         download=download,
     )

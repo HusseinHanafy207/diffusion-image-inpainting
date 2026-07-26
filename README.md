@@ -424,7 +424,8 @@ python scripts/evaluate.py --config configs/fashion_mnist.yaml \
   --jump-length 10 --jump-n-sample 5 --out-dir outputs/fashion_mnist/eval
 
 # CelebA (Stage 3) — RGB faces at 64×64; first run downloads ~1.4GB
-python scripts/train.py --config configs/celeba.yaml --epochs 40
+# Prefer local data-dir; checkpoints on Drive. Uses num_workers=2, pin_memory=true.
+python scripts/train.py --config configs/celeba.yaml --epochs 40 --num-workers 2
 python scripts/inpaint.py --config configs/celeba.yaml \
   --checkpoint outputs/celeba/checkpoints/latest.pt --mask-type center
 python scripts/evaluate.py --config configs/celeba.yaml \

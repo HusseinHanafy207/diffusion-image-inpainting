@@ -17,6 +17,7 @@ from image_inpainting.datasets.fashion_mnist import (
     get_fashion_mnist_inpainting_datasets,
 )
 from image_inpainting.datasets.inpainting import InpaintingDataset, apply_mask
+from image_inpainting.datasets.loader_utils import build_dataloader_kwargs
 from image_inpainting.datasets.mnist import (
     get_mnist_dataset,
     get_mnist_inpainting_dataloaders,
@@ -26,6 +27,7 @@ from image_inpainting.datasets.mnist import (
 __all__ = [
     "InpaintingDataset",
     "apply_mask",
+    "build_dataloader_kwargs",
     "get_base_dataset",
     "get_celeba_dataset",
     "get_celeba_inpainting_dataloaders",
