@@ -5,7 +5,7 @@ Convention (binary mask ``m``):
     0 = missing / to be inpainted
 
 Supported types:
-    - center square
+    - center square (optional spatial jitter)
     - random rectangle
     - random brush strokes (scratches)
     - random holes (missing pixels)
@@ -14,7 +14,7 @@ Supported types:
 from __future__ import annotations
 
 from enum import Enum
-from typing import Sequence
+from typing import Mapping, Sequence
 
 import torch
 
@@ -36,8 +36,15 @@ class MaskGenerator:
     mask_types:
         Types to sample from. If several are given, one is chosen at random
         per sample (unless ``mask_type`` is passed explicitly to ``__call__``).
+    mask_type_weights:
+        Optional relative sampling weights aligned with ``mask_types``, or a
+        mapping ``{type_name: weight}``. ``None`` → uniform over ``mask_types``.
     center_ratio:
         Side length of the center hole as a fraction of ``image_size``.
+    center_jitter_ratio:
+        Max per-axis offset of the center hole as a fraction of ``image_size``.
+        ``0`` keeps a fixed dead-center square; ``>0`` jitters independently
+        per sample (clamped so the hole stays inside the image).
     rect_min_ratio, rect_max_ratio:
         Random rectangle hole side length as a fraction of ``image_size``.
     brush_num_strokes:
@@ -57,7 +64,9 @@ class MaskGenerator:
         image_size: int = 28,
         mask_types: Sequence[MaskType | str] | None = None,
         *,
+        mask_type_weights: Sequence[float] | Mapping[str, float] | None = None,
         center_ratio: float = 0.4,
+        center_jitter_ratio: float = 0.0,
         rect_min_ratio: float = 0.2,
         rect_max_ratio: float = 0.5,
         brush_num_strokes: tuple[int, int] = (1, 4),
@@ -70,6 +79,10 @@ class MaskGenerator:
             raise ValueError(f"image_size must be >= 1, got {image_size}")
         if not 0.0 < center_ratio < 1.0:
             raise ValueError(f"center_ratio must be in (0, 1), got {center_ratio}")
+        if center_jitter_ratio < 0.0:
+            raise ValueError(
+                f"center_jitter_ratio must be >= 0, got {center_jitter_ratio}"
+            )
         if not 0.0 < rect_min_ratio <= rect_max_ratio < 1.0:
             raise ValueError(
                 f"Need 0 < rect_min_ratio <= rect_max_ratio < 1, "
@@ -83,7 +96,9 @@ class MaskGenerator:
         if not self.mask_types:
             raise ValueError("mask_types must be non-empty")
 
+        self.mask_type_probs = self._normalize_type_weights(mask_type_weights)
         self.center_ratio = center_ratio
+        self.center_jitter_ratio = center_jitter_ratio
         self.rect_min_ratio = rect_min_ratio
         self.rect_max_ratio = rect_max_ratio
         self.brush_num_strokes = brush_num_strokes
@@ -107,7 +122,7 @@ class MaskGenerator:
             masks = self._generate_type(chosen, batch_size)
         else:
             chunks = [
-                self._generate_type(self.mask_types[torch.randint(len(self.mask_types), (1,)).item()], 1)
+                self._generate_type(self._sample_mask_type(), 1)
                 for _ in range(batch_size)
             ]
             masks = torch.cat(chunks, dim=0)
@@ -117,14 +132,23 @@ class MaskGenerator:
         return masks
 
     def center(self, batch_size: int = 1) -> torch.Tensor:
-        """Center square hole; identical geometry for every sample in the batch."""
+        """Near-center square hole; optional per-sample spatial jitter."""
         h = w = self.image_size
         side = max(1, int(round(self.center_ratio * h)))
-        top = (h - side) // 2
-        left = (w - side) // 2
+        base_top = (h - side) // 2
+        base_left = (w - side) // 2
+        max_shift = int(round(self.center_jitter_ratio * h))
 
         masks = self._ones(batch_size)
-        masks[:, :, top : top + side, left : left + side] = 0.0
+        for i in range(batch_size):
+            if max_shift > 0:
+                dy = int(torch.randint(-max_shift, max_shift + 1, (1,)).item())
+                dx = int(torch.randint(-max_shift, max_shift + 1, (1,)).item())
+            else:
+                dy = dx = 0
+            top = min(max(base_top + dy, 0), h - side)
+            left = min(max(base_left + dx, 0), w - side)
+            masks[i, :, top : top + side, left : left + side] = 0.0
         return masks
 
     def rectangle(self, batch_size: int = 1) -> torch.Tensor:
@@ -186,6 +210,39 @@ class MaskGenerator:
         if mask_type is MaskType.HOLES:
             return self.holes(batch_size)
         raise ValueError(f"Unknown mask type: {mask_type}")
+
+    def _sample_mask_type(self) -> MaskType:
+        idx = int(torch.multinomial(self.mask_type_probs, num_samples=1).item())
+        return self.mask_types[idx]
+
+    def _normalize_type_weights(
+        self,
+        weights: Sequence[float] | Mapping[str, float] | None,
+    ) -> torch.Tensor:
+        n = len(self.mask_types)
+        if weights is None:
+            probs = torch.ones(n, dtype=torch.float64)
+        elif isinstance(weights, Mapping):
+            probs = torch.tensor(
+                [float(weights.get(t.value, 0.0)) for t in self.mask_types],
+                dtype=torch.float64,
+            )
+        else:
+            if len(weights) != n:
+                raise ValueError(
+                    f"mask_type_weights length {len(weights)} must match "
+                    f"mask_types length {n}"
+                )
+            probs = torch.tensor([float(w) for w in weights], dtype=torch.float64)
+
+        if (probs < 0).any():
+            raise ValueError(f"mask_type_weights must be non-negative, got {weights!r}")
+        total = float(probs.sum().item())
+        if total <= 0.0:
+            raise ValueError(
+                f"mask_type_weights must sum to a positive value, got {weights!r}"
+            )
+        return (probs / total).to(dtype=torch.float32)
 
     def _ones(self, batch_size: int) -> torch.Tensor:
         h = w = self.image_size

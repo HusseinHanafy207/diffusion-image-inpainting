@@ -185,6 +185,14 @@ def main() -> None:
     print(f"Dataset: {config.get('dataset', 'MNIST')}")
     print(f"Device: {device}")
     print(f"ConditionedUNet parameters: {n_params:,}")
+    type_mix = ", ".join(
+        f"{t.value}={p:.2f}"
+        for t, p in zip(mask_generator.mask_types, mask_generator.mask_type_probs.tolist())
+    )
+    print(
+        f"Mask mix: {type_mix} | center_jitter_ratio="
+        f"{mask_generator.center_jitter_ratio}"
+    )
     print(
         f"Training for {config['epochs']} epochs | "
         f"batch_size={config['batch_size']} | lr={config['learning_rate']} | "

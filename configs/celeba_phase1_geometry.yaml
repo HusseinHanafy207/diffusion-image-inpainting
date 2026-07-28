@@ -1,0 +1,76 @@
+# Phase 1 — geometry / mask-distribution finetune (CelebA)
+#
+# Hypothesis: fixed dead-center holes + uniform mask mix let the model learn a
+# spatial "sunglasses" shortcut. Keep LR unchanged; only change the data.
+#
+# Resume from epoch 30, train 5 more epochs (31–35):
+#   python scripts/train.py --config configs/celeba_phase1_geometry.yaml \
+#     --resume /path/to/epoch_030.pt --epochs 35 \
+#     --data-dir /content/celeba_data \
+#     --checkpoint-dir /content/drive/MyDrive/inpainting_runs/celeba_phase1/checkpoints \
+#     --log-dir /content/drive/MyDrive/inpainting_runs/celeba_phase1/logs \
+#     --sample-dir /content/drive/MyDrive/inpainting_runs/celeba_phase1/samples
+#
+# Then compare center inpaint grids vs the epoch-30 / 40 baselines.
+
+dataset: CelebA
+data_dir: data/raw
+image_size: 64
+image_channels: 3
+
+# Heavy on large semantic holes; light on easy local fill
+mask_types:
+  - center
+  - rectangle
+  - brush
+  - holes
+mask_type_weights:
+  center: 0.40
+  rectangle: 0.40
+  brush: 0.10
+  holes: 0.10
+center_ratio: 0.4
+# Max offset ≈ ±0.15 * 64 ≈ ±10 px (clamped inside the image)
+center_jitter_ratio: 0.15
+rect_min_ratio: 0.2
+rect_max_ratio: 0.5
+brush_num_strokes: [1, 4]
+brush_thickness: [2, 5]
+brush_steps: 16
+holes_num: [3, 12]
+holes_radius: [2, 5]
+
+# Same optimizer as baseline CelebA (control)
+batch_size: 32
+epochs: 35
+learning_rate: 0.0002
+optimizer: Adam
+num_workers: 2
+pin_memory: true
+
+num_timesteps: 1000
+beta_start: 0.0001
+beta_end: 0.02
+
+base_channels: 64
+channel_mult: [1, 2, 4]
+num_res_blocks: 2
+attention_resolutions: [16]
+dropout: 0.1
+
+device: auto
+
+# Separate run dirs so baseline epoch_030 / 040 stay untouched
+checkpoint_dir: outputs/celeba_phase1/checkpoints
+sample_dir: outputs/celeba_phase1/samples
+figure_dir: outputs/celeba_phase1/figures
+log_dir: outputs/celeba_phase1/logs
+train_metrics_file: train_metrics.csv
+val_metrics_file: val_metrics.csv
+checkpoint_every: 1
+
+metrics:
+  - psnr
+  - ssim
+
+seed: 42
