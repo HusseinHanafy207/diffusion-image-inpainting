@@ -176,9 +176,15 @@ def main() -> None:
                 f"--epochs {config['epochs']} must be greater than resumed epoch "
                 f"{checkpoint['epoch']}."
             )
+        # Checkpoint Adam state keeps the old LR; apply the config rate so LR
+        # experiments (e.g. Phase 2) actually take effect.
+        resume_lr = float(config["learning_rate"])
+        for group in optimizer.param_groups:
+            group["lr"] = resume_lr
         print(
             f"Resumed from epoch {checkpoint['epoch']}, "
-            f"training to epoch {config['epochs']}"
+            f"training to epoch {config['epochs']} | "
+            f"optimizer lr set to {resume_lr}"
         )
 
     n_params = sum(p.numel() for p in model.parameters())
