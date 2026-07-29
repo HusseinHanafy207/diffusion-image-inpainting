@@ -166,6 +166,7 @@ def main() -> None:
         train_loader=train_loader,
         val_loader=val_loader,
         config=config,
+        mask_generator=mask_generator,
     )
 
     if args.resume:
@@ -197,8 +198,17 @@ def main() -> None:
     )
     print(
         f"Mask mix: {type_mix} | center_jitter_ratio="
-        f"{mask_generator.center_jitter_ratio}"
+        f"{mask_generator.center_jitter_ratio} | "
+        f"center_ratio={mask_generator.center_ratio}"
     )
+    hole_w = float(config.get("hole_loss_weight", 0.0) or 0.0)
+    schedule = config.get("center_ratio_schedule")
+    print(f"hole_loss_weight={hole_w}")
+    if schedule:
+        stages = ", ".join(
+            f"<=e{s['until_epoch']}:{s['center_ratio']}" for s in schedule
+        )
+        print(f"center_ratio_schedule: {stages}")
     print(
         f"Training for {config['epochs']} epochs | "
         f"batch_size={config['batch_size']} | lr={config['learning_rate']} | "

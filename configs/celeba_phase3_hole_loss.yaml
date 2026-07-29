@@ -1,0 +1,77 @@
+# Phase 3 — hole-weighted noise loss (CelebA)
+#
+# Hypothesis: uniform MSE under-trains the hole on large center masks
+# (~84% known pixels at cr=0.4 dominate gradients → sunglasses prior).
+# Weight hole pixels: w = 1 + λ*(1−m), λ = hole_loss_weight.
+#
+# Resume from epoch 30, train epochs 31–40:
+#   python scripts/train.py --config configs/celeba_phase3_hole_loss.yaml \
+#     --resume /path/to/epoch_030.pt --epochs 40 \
+#     --data-dir /content/celeba_data \
+#     --checkpoint-dir .../celeba_phase3/checkpoints \
+#     --log-dir .../celeba_phase3/logs \
+#     --sample-dir .../celeba_phase3/samples
+#
+# Eval (same protocol as Phase A):
+#   python scripts/evaluate.py --config configs/celeba.yaml \
+#     --checkpoint .../celeba_phase3/checkpoints/epoch_040.pt \
+#     --mask-type center --center-ratio 0.4 --max-samples 32 \
+#     --timesteps 250 --jump-length 10 --jump-n-sample 5 \
+#     --out-dir .../celeba_phase3/eval
+
+dataset: CelebA
+data_dir: data/raw
+image_size: 64
+image_channels: 3
+
+# Uniform mask mix (control vs Phase 1 geometry reweight)
+mask_types:
+  - center
+  - rectangle
+  - brush
+  - holes
+center_ratio: 0.4
+center_jitter_ratio: 0.0
+rect_min_ratio: 0.2
+rect_max_ratio: 0.5
+brush_num_strokes: [1, 4]
+brush_thickness: [2, 5]
+brush_steps: 16
+holes_num: [3, 12]
+holes_radius: [2, 5]
+
+# Hole-weighted noise MSE: w = 1 + λ*(1−m)
+hole_loss_weight: 4.0
+
+batch_size: 32
+epochs: 40
+learning_rate: 0.00002
+optimizer: Adam
+num_workers: 2
+pin_memory: true
+
+num_timesteps: 1000
+beta_start: 0.0001
+beta_end: 0.02
+
+base_channels: 64
+channel_mult: [1, 2, 4]
+num_res_blocks: 2
+attention_resolutions: [16]
+dropout: 0.1
+
+device: auto
+
+checkpoint_dir: outputs/celeba_phase3/checkpoints
+sample_dir: outputs/celeba_phase3/samples
+figure_dir: outputs/celeba_phase3/figures
+log_dir: outputs/celeba_phase3/logs
+train_metrics_file: train_metrics.csv
+val_metrics_file: val_metrics.csv
+checkpoint_every: 1
+
+metrics:
+  - psnr
+  - ssim
+
+seed: 42

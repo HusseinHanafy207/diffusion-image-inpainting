@@ -7,6 +7,9 @@ Usage:
     python scripts/evaluate.py --checkpoint outputs/checkpoints/latest.pt
     python scripts/evaluate.py --checkpoint outputs/checkpoints/epoch_040.pt \\
         --mask-type center --max-samples 32 --jump-length 10 --jump-n-sample 5
+    python scripts/evaluate.py --config configs/celeba.yaml \\
+        --checkpoint outputs/celeba/checkpoints/epoch_030.pt \\
+        --mask-type center --center-ratio 0.4 --max-samples 32 --timesteps 250
 """
 
 from __future__ import annotations
@@ -74,6 +77,12 @@ def parse_args() -> argparse.Namespace:
         default=8,
         help="How many samples to include in the visual grid",
     )
+    parser.add_argument(
+        "--center-ratio",
+        type=float,
+        default=None,
+        help="Override center hole side as a fraction of image size (e.g. 0.2, 0.3, 0.4).",
+    )
     return parser.parse_args()
 
 
@@ -131,11 +140,17 @@ def main() -> None:
     epoch = checkpoint.get("epoch", "?")
     data_dir = args.data_dir or config.get("data_dir", "data/raw")
     image_size = int(config.get("image_size", 28))
+    center_ratio = (
+        float(args.center_ratio)
+        if args.center_ratio is not None
+        else float(config.get("center_ratio", 0.4))
+    )
 
     print(f"Loaded checkpoint from epoch {epoch}")
     print(
         f"Device: {device} | dataset={config.get('dataset', 'MNIST')} | "
-        f"mask={args.mask_type} | samples={args.max_samples} | "
+        f"mask={args.mask_type} | center_ratio={center_ratio} | "
+        f"samples={args.max_samples} | "
         f"jump_length={args.jump_length} | jump_n_sample={args.jump_n_sample}"
     )
 
@@ -150,7 +165,7 @@ def main() -> None:
     indices = torch.randperm(len(base), generator=generator)[:n].tolist()
     ds = InpaintingDataset(
         Subset(base, indices),
-        MaskGenerator(image_size=image_size),
+        MaskGenerator(image_size=image_size, center_ratio=center_ratio),
         mask_type=args.mask_type,
     )
     loader = DataLoader(
@@ -214,6 +229,7 @@ def main() -> None:
         "epoch": epoch,
         "dataset": str(config.get("dataset", "MNIST")),
         "mask_type": args.mask_type,
+        "center_ratio": center_ratio,
         "num_samples": len(per_image),
         "jump_length": args.jump_length,
         "jump_n_sample": args.jump_n_sample,
@@ -234,7 +250,11 @@ def main() -> None:
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     epoch_tag = f"{epoch:03d}" if isinstance(epoch, int) else str(epoch)
-    stem = f"eval_{args.mask_type}_epoch_{epoch_tag}_j{args.jump_length}r{args.jump_n_sample}"
+    ratio_tag = f"_cr{center_ratio:.2f}".replace(".", "")
+    stem = (
+        f"eval_{args.mask_type}{ratio_tag}_epoch_{epoch_tag}"
+        f"_j{args.jump_length}r{args.jump_n_sample}"
+    )
 
     csv_path = args.out_dir / f"{stem}.csv"
     with csv_path.open("w", newline="", encoding="utf-8") as file:
@@ -252,7 +272,7 @@ def main() -> None:
         torch.stack(vis_inpainted),
         grid_path,
         title=(
-            f"Eval ({args.mask_type}, epoch {epoch}, "
+            f"Eval ({args.mask_type}, cr={center_ratio:.2f}, epoch {epoch}, "
             f"RePaint j={args.jump_length} r={args.jump_n_sample})"
         ),
     )

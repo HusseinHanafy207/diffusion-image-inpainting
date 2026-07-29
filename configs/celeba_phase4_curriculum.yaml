@@ -1,0 +1,87 @@
+# Phase 4 — center-ratio curriculum (CelebA)
+#
+# Use only if Phase 3 hole-weighted loss fails on cr=0.4.
+# Hypothesis: jumping straight into large holes teaches the sunglasses prior;
+# gradual hole growth transfers from the working cr≈0.2 regime.
+#
+# Resume from epoch 30, train through epoch 50:
+#   python scripts/train.py --config configs/celeba_phase4_curriculum.yaml \
+#     --resume /path/to/epoch_030.pt --epochs 50 \
+#     --data-dir /content/celeba_data \
+#     --checkpoint-dir .../celeba_phase4/checkpoints \
+#     --log-dir .../celeba_phase4/logs \
+#     --sample-dir .../celeba_phase4/samples
+#
+# Eval at cr=0.40 with the same seed / RePaint protocol as Phase A.
+
+dataset: CelebA
+data_dir: data/raw
+image_size: 64
+image_channels: 3
+
+# Heavy on large semantic holes so the curriculum actually runs
+mask_types:
+  - center
+  - rectangle
+  - brush
+  - holes
+mask_type_weights:
+  center: 0.40
+  rectangle: 0.40
+  brush: 0.10
+  holes: 0.10
+# Starting value; overwritten each epoch by center_ratio_schedule
+center_ratio: 0.25
+center_jitter_ratio: 0.0
+rect_min_ratio: 0.2
+rect_max_ratio: 0.5
+brush_num_strokes: [1, 4]
+brush_thickness: [2, 5]
+brush_steps: 16
+holes_num: [3, 12]
+holes_radius: [2, 5]
+
+# Staged hole size (epochs are absolute training epoch numbers)
+center_ratio_schedule:
+  - until_epoch: 37
+    center_ratio: 0.25
+  - until_epoch: 44
+    center_ratio: 0.32
+  - until_epoch: 50
+    center_ratio: 0.40
+
+# Uniform loss (isolate curriculum vs Phase 3 weighting)
+hole_loss_weight: 0.0
+
+batch_size: 32
+epochs: 50
+learning_rate: 0.00002
+optimizer: Adam
+num_workers: 2
+pin_memory: true
+
+num_timesteps: 1000
+beta_start: 0.0001
+beta_end: 0.02
+
+base_channels: 64
+channel_mult: [1, 2, 4]
+num_res_blocks: 2
+attention_resolutions: [16]
+dropout: 0.1
+
+device: auto
+
+checkpoint_dir: outputs/celeba_phase4/checkpoints
+sample_dir: outputs/celeba_phase4/samples
+figure_dir: outputs/celeba_phase4/figures
+log_dir: outputs/celeba_phase4/logs
+train_metrics_file: train_metrics.csv
+val_metrics_file: val_metrics.csv
+checkpoint_every: 1
+
+metrics:
+  - psnr
+  - ssim
+
+seed: 42

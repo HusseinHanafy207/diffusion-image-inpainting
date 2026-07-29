@@ -7,7 +7,7 @@ Training is almost identical to standard DDPM:
 Differences vs ``generative_models.trainers.DDPMTrainer``:
     - each batch already includes a fresh mask (from ``InpaintingDataset``)
     - U-Net sees ``(x_t, masked_image, mask)``
-    - loss is still noise-prediction MSE (reuse ``DDPMLoss``)
+    - loss is noise-prediction MSE (optionally hole-weighted)
 """
 
 from __future__ import annotations
@@ -23,6 +23,28 @@ from torch.utils.data import DataLoader
 from generative_models.ddpm import NoiseScheduler, forward_diffuse
 from generative_models.utils.device import get_device
 
+from image_inpainting.masks.generator import MaskGenerator
+
+
+def resolve_center_ratio_for_epoch(
+    schedule: list[dict[str, Any]] | None,
+    epoch: int,
+    *,
+    default: float | None = None,
+) -> float | None:
+    """Pick ``center_ratio`` for ``epoch`` from a curriculum schedule.
+
+    Each stage is ``{"until_epoch": int, "center_ratio": float}``. Stages are
+    checked in order; the first with ``epoch <= until_epoch`` wins. If ``epoch``
+    exceeds every ``until_epoch``, the last stage's ratio is used.
+    """
+    if not schedule:
+        return default
+    for stage in schedule:
+        if epoch <= int(stage["until_epoch"]):
+            return float(stage["center_ratio"])
+    return float(schedule[-1]["center_ratio"])
+
 
 class InpaintingTrainer:
     """Orchestrates mask-conditioned DDPM training.
@@ -36,13 +58,17 @@ class InpaintingTrainer:
     optimizer:
         Torch optimizer.
     criterion:
-        Noise-prediction loss (typically ``DDPMLoss``).
+        Noise-prediction loss (typically ``DDPMLoss``). Used when
+        ``hole_loss_weight`` is 0.
     train_loader:
         Yields ``(original, masked_image, mask)``.
     config:
         Experiment config (epochs, checkpoint paths, device, …).
     val_loader:
         Optional validation loader with the same batch layout.
+    mask_generator:
+        Shared :class:`~image_inpainting.masks.MaskGenerator` used by the
+        loaders. Required for ``center_ratio_schedule`` curriculum updates.
     """
 
     TRAIN_FIELDS = ["epoch", "loss", "lr", "epoch_time"]
@@ -57,6 +83,7 @@ class InpaintingTrainer:
         train_loader: DataLoader,
         config: dict[str, Any],
         val_loader: DataLoader | None = None,
+        mask_generator: MaskGenerator | None = None,
     ) -> None:
         self.model = model
         self.scheduler = scheduler
@@ -65,6 +92,8 @@ class InpaintingTrainer:
         self.train_loader = train_loader
         self.val_loader = val_loader
         self.config = config
+        self.mask_generator = mask_generator
+        self.hole_loss_weight = float(config.get("hole_loss_weight", 0.0) or 0.0)
 
         self.device = self._resolve_device(config.get("device", "auto"))
         self.model.to(self.device)
@@ -107,6 +136,41 @@ class InpaintingTrainer:
         with path.open("a", newline="", encoding="utf-8") as file:
             csv.DictWriter(file, fieldnames=fieldnames).writerow(row)
 
+    def _compute_loss(
+        self,
+        noise_pred: torch.Tensor,
+        noise: torch.Tensor,
+        mask: torch.Tensor,
+    ) -> torch.Tensor:
+        """Uniform or hole-weighted noise MSE.
+
+        With ``hole_loss_weight = λ > 0``:
+
+            w = 1 + λ * (1 − m)     # m: 1=known, 0=hole
+            loss = mean(w ⊙ (ε̂ − ε)²)
+        """
+        if self.hole_loss_weight <= 0.0:
+            return self.criterion(noise_pred, noise)
+
+        weight = 1.0 + self.hole_loss_weight * (1.0 - mask)
+        return ((noise_pred - noise) ** 2 * weight).mean()
+
+    def _apply_center_ratio_curriculum(self, epoch: int) -> None:
+        """Update ``MaskGenerator.center_ratio`` from ``center_ratio_schedule``."""
+        schedule = self.config.get("center_ratio_schedule")
+        if not schedule:
+            return
+        if self.mask_generator is None:
+            raise ValueError(
+                "center_ratio_schedule requires mask_generator on InpaintingTrainer"
+            )
+        ratio = resolve_center_ratio_for_epoch(schedule, epoch)
+        if ratio is None:
+            return
+        if abs(self.mask_generator.center_ratio - ratio) > 1e-9:
+            self.mask_generator.center_ratio = ratio
+            print(f"Curriculum: center_ratio -> {ratio:.4f} (epoch {epoch})")
+
     def _run_epoch(self, loader: DataLoader, training: bool) -> dict[str, float]:
         self.model.train(mode=training)
 
@@ -128,7 +192,7 @@ class InpaintingTrainer:
                 # Forward diffuse the *clean* original; condition on damaged view + mask.
                 x_t, t, noise = forward_diffuse(self.scheduler, original)
                 noise_pred = self.model(x_t, t, masked_image, mask)
-                loss = self.criterion(noise_pred, noise)
+                loss = self._compute_loss(noise_pred, noise, mask)
 
                 if training:
                     loss.backward()
@@ -244,6 +308,7 @@ class InpaintingTrainer:
 
         for epoch in range(start_epoch + 1, epochs + 1):
             self.current_epoch = epoch
+            self._apply_center_ratio_curriculum(epoch)
             train_metrics = self.train_epoch()
             val_metrics = self.validate()
             self._print_metrics(epoch, train_metrics, val_metrics)
