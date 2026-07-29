@@ -61,6 +61,7 @@ def get_inpainting_dataloaders(
     mask_type: MaskType | str | None = None,
     num_workers: int = 0,
     pin_memory: bool = False,
+    persistent_workers: bool | None = None,
     download: bool = True,
 ) -> tuple[DataLoader, DataLoader]:
     """Train / val loaders for the named dataset."""
@@ -73,6 +74,7 @@ def get_inpainting_dataloaders(
             mask_type=mask_type,
             num_workers=num_workers,
             pin_memory=pin_memory,
+            persistent_workers=persistent_workers,
         )
     if key == "fashionmnist":
         return get_fashion_mnist_inpainting_dataloaders(
@@ -82,6 +84,7 @@ def get_inpainting_dataloaders(
             mask_type=mask_type,
             num_workers=num_workers,
             pin_memory=pin_memory,
+            persistent_workers=persistent_workers,
         )
     if key == "celeba":
         size = 64 if image_size is None else image_size
@@ -93,6 +96,7 @@ def get_inpainting_dataloaders(
             mask_type=mask_type,
             num_workers=num_workers,
             pin_memory=pin_memory,
+            persistent_workers=persistent_workers,
             download=download,
         )
     raise ValueError(f"Unknown dataset {dataset!r}. Supported: {_SUPPORTED}")
@@ -118,6 +122,15 @@ def get_inpainting_dataloaders_from_config(
         if pin_memory is not None
         else bool(config.get("pin_memory", False))
     )
+    # Curriculum mutates MaskGenerator.center_ratio each epoch. Persistent
+    # workers keep a stale copy, so force respawn unless explicitly overridden.
+    if "persistent_workers" in config:
+        persist: bool | None = bool(config["persistent_workers"])
+    elif config.get("center_ratio_schedule"):
+        persist = False
+    else:
+        persist = None
+
     return get_inpainting_dataloaders(
         str(config.get("dataset", "MNIST")),
         batch_size=int(config["batch_size"]),
@@ -127,5 +140,6 @@ def get_inpainting_dataloaders_from_config(
         mask_type=mask_type,
         num_workers=workers,
         pin_memory=pin,
+        persistent_workers=persist,
         download=download,
     )

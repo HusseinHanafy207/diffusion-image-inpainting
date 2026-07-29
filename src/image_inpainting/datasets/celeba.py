@@ -86,6 +86,7 @@ def get_celeba_inpainting_dataloaders(
     mask_type: MaskType | str | None = None,
     num_workers: int = 0,
     pin_memory: bool = False,
+    persistent_workers: bool | None = None,
     download: bool = True,
 ) -> tuple[DataLoader, DataLoader]:
     """Train / val loaders yielding ``(original, masked_image, mask)`` batches."""
@@ -97,7 +98,9 @@ def get_celeba_inpainting_dataloaders(
         download=download,
     )
     loader_kwargs = build_dataloader_kwargs(
-        num_workers=num_workers, pin_memory=pin_memory
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+        persistent_workers=persistent_workers,
     )
     train_loader = DataLoader(
         train_ds,

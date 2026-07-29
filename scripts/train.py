@@ -212,7 +212,8 @@ def main() -> None:
     print(
         f"Training for {config['epochs']} epochs | "
         f"batch_size={config['batch_size']} | lr={config['learning_rate']} | "
-        f"num_workers={config['num_workers']} | pin_memory={config['pin_memory']}"
+        f"num_workers={config['num_workers']} | pin_memory={config['pin_memory']} | "
+        f"persistent_workers={train_loader.persistent_workers}"
     )
     print()
 

@@ -42,6 +42,8 @@ holes_num: [3, 12]
 holes_radius: [2, 5]
 
 # Staged hole size (epochs are absolute training epoch numbers)
+# IMPORTANT: curriculum mutates MaskGenerator each epoch → persistent_workers
+# must be false (also auto-disabled when center_ratio_schedule is set).
 center_ratio_schedule:
   - until_epoch: 37
     center_ratio: 0.25
@@ -49,6 +51,7 @@ center_ratio_schedule:
     center_ratio: 0.32
   - until_epoch: 50
     center_ratio: 0.40
+persistent_workers: false
 
 # Uniform loss (isolate curriculum vs Phase 3 weighting)
 hole_loss_weight: 0.0

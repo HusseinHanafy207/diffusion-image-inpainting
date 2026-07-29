@@ -23,6 +23,37 @@ def test_build_dataloader_kwargs_with_workers() -> None:
     assert kwargs["prefetch_factor"] == 2
 
 
+def test_build_dataloader_kwargs_can_disable_persistent_workers() -> None:
+    kwargs = build_dataloader_kwargs(
+        num_workers=2, pin_memory=True, persistent_workers=False
+    )
+    assert kwargs["persistent_workers"] is False
+
+
+def test_curriculum_config_disables_persistent_workers() -> None:
+    from image_inpainting.datasets import get_inpainting_dataloaders_from_config
+    from image_inpainting.masks import build_mask_generator_from_config
+
+    phase4 = load_config("configs/celeba_phase4_curriculum.yaml")
+    assert phase4.get("center_ratio_schedule")
+    assert phase4.get("persistent_workers") is False
+
+    # MNIST avoids CelebA download while checking from_config wiring.
+    config = load_config("configs/mnist.yaml")
+    config["center_ratio_schedule"] = phase4["center_ratio_schedule"]
+    config["num_workers"] = 2
+    config["pin_memory"] = False
+    config["batch_size"] = 4
+    train_loader, _ = get_inpainting_dataloaders_from_config(
+        config,
+        build_mask_generator_from_config(config),
+        num_workers=2,
+        pin_memory=False,
+    )
+    assert train_loader.num_workers == 2
+    assert train_loader.persistent_workers is False
+
+
 def test_celeba_config_has_workers() -> None:
     config = load_config("configs/celeba.yaml")
     assert int(config["num_workers"]) == 2
