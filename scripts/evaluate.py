@@ -26,7 +26,7 @@ from torch.utils.data import DataLoader, Subset
 from tqdm import tqdm
 
 from image_inpainting.datasets import InpaintingDataset, get_base_dataset
-from image_inpainting.diffusion import inpaint, load_inpainting_checkpoint
+from image_inpainting.diffusion import inpaint, load_checkpoint_for_inpaint
 from image_inpainting.evaluation import compute_metrics
 from image_inpainting.masks import MaskGenerator, MaskType
 from image_inpainting.utils import imshow_tensor
@@ -83,6 +83,11 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Override center hole side as a fraction of image size (e.g. 0.2, 0.3, 0.4).",
     )
+    parser.add_argument(
+        "--unconditional",
+        action="store_true",
+        help="Load an unconditional DDPM checkpoint (mask used only in RePaint stitch).",
+    )
     return parser.parse_args()
 
 
@@ -132,10 +137,11 @@ def main() -> None:
         if device.type == "cuda":
             torch.cuda.manual_seed_all(args.seed)
 
-    model, scheduler, config, checkpoint = load_inpainting_checkpoint(
+    model, scheduler, config, checkpoint = load_checkpoint_for_inpaint(
         checkpoint_path=args.checkpoint,
         device=device,
         config_path=args.config,
+        unconditional=True if args.unconditional else None,
     )
     epoch = checkpoint.get("epoch", "?")
     data_dir = args.data_dir or config.get("data_dir", "data/raw")
@@ -145,8 +151,11 @@ def main() -> None:
         if args.center_ratio is not None
         else float(config.get("center_ratio", 0.4))
     )
+    mode = str(config.get("training_mode", "conditioned"))
+    if args.unconditional:
+        mode = "unconditional"
 
-    print(f"Loaded checkpoint from epoch {epoch}")
+    print(f"Loaded checkpoint from epoch {epoch} | mode={mode}")
     print(
         f"Device: {device} | dataset={config.get('dataset', 'MNIST')} | "
         f"mask={args.mask_type} | center_ratio={center_ratio} | "
@@ -228,6 +237,7 @@ def main() -> None:
     summary = {
         "epoch": epoch,
         "dataset": str(config.get("dataset", "MNIST")),
+        "training_mode": mode,
         "mask_type": args.mask_type,
         "center_ratio": center_ratio,
         "num_samples": len(per_image),
@@ -251,9 +261,10 @@ def main() -> None:
     args.out_dir.mkdir(parents=True, exist_ok=True)
     epoch_tag = f"{epoch:03d}" if isinstance(epoch, int) else str(epoch)
     ratio_tag = f"_cr{center_ratio:.2f}".replace(".", "")
+    mode_tag = "_uncond" if mode == "unconditional" else ""
     stem = (
         f"eval_{args.mask_type}{ratio_tag}_epoch_{epoch_tag}"
-        f"_j{args.jump_length}r{args.jump_n_sample}"
+        f"_j{args.jump_length}r{args.jump_n_sample}{mode_tag}"
     )
 
     csv_path = args.out_dir / f"{stem}.csv"

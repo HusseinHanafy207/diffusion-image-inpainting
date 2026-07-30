@@ -1,0 +1,59 @@
+# Stage 3b — unconditional CelebA DDPM + RePaint at inference
+#
+# Train a standard face generator (no masks). At test time, RePaint stitches
+# known pixels; the U-Net never sees mask / masked_image channels.
+#
+#   python scripts/train_unconditional.py --config configs/celeba_unconditional.yaml --epochs 40
+#   python scripts/inpaint.py --config configs/celeba_unconditional.yaml \
+#     --checkpoint outputs/celeba_uncond/checkpoints/epoch_040.pt \
+#     --unconditional --mask-type center --center-ratio 0.4
+
+dataset: CelebA
+data_dir: data/raw
+image_size: 64
+image_channels: 3
+
+# Mark checkpoints so loaders can auto-detect mode
+training_mode: unconditional
+
+batch_size: 32
+epochs: 40
+learning_rate: 0.0002
+optimizer: Adam
+num_workers: 2
+pin_memory: true
+
+num_timesteps: 1000
+beta_start: 0.0001
+beta_end: 0.02
+
+# Unconditional U-Net: in_channels = out_channels = 3 (~same capacity recipe)
+base_channels: 64
+channel_mult: [1, 2, 4]
+num_res_blocks: 2
+attention_resolutions: [16]
+dropout: 0.1
+
+device: auto
+
+checkpoint_dir: outputs/celeba_uncond/checkpoints
+sample_dir: outputs/celeba_uncond/samples
+figure_dir: outputs/celeba_uncond/figures
+log_dir: outputs/celeba_uncond/logs
+train_metrics_file: train_metrics.csv
+val_metrics_file: val_metrics.csv
+checkpoint_every: 5
+
+# Defaults for inpaint / evaluate CLIs (not used during training)
+mask_types:
+  - center
+  - rectangle
+  - brush
+  - holes
+center_ratio: 0.4
+
+metrics:
+  - psnr
+  - ssim
+
+seed: 42

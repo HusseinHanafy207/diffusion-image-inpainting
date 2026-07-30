@@ -17,7 +17,7 @@ from generative_models.utils.device import get_device
 from torch.utils.data import Subset
 
 from image_inpainting.datasets import InpaintingDataset, get_base_dataset
-from image_inpainting.diffusion import inpaint, load_inpainting_checkpoint
+from image_inpainting.diffusion import inpaint, load_checkpoint_for_inpaint
 from image_inpainting.masks import MaskGenerator, MaskType
 from image_inpainting.utils import imshow_tensor
 
@@ -71,6 +71,11 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Override center hole side as a fraction of image size (e.g. 0.2, 0.3, 0.4).",
     )
+    parser.add_argument(
+        "--unconditional",
+        action="store_true",
+        help="Load an unconditional DDPM checkpoint (mask used only in RePaint stitch).",
+    )
     return parser.parse_args()
 
 
@@ -115,14 +120,18 @@ def main() -> None:
         if device.type == "cuda":
             torch.cuda.manual_seed_all(args.seed)
 
-    model, scheduler, config, checkpoint = load_inpainting_checkpoint(
+    model, scheduler, config, checkpoint = load_checkpoint_for_inpaint(
         checkpoint_path=args.checkpoint,
         device=device,
         config_path=args.config,
+        unconditional=True if args.unconditional else None,
     )
     epoch = checkpoint.get("epoch", "?")
     data_dir = args.data_dir or config.get("data_dir", "data/raw")
     image_size = int(config.get("image_size", 28))
+    mode = str(config.get("training_mode", "conditioned"))
+    if args.unconditional:
+        mode = "unconditional"
 
     center_ratio = (
         float(args.center_ratio)
@@ -130,7 +139,7 @@ def main() -> None:
         else float(config.get("center_ratio", 0.4))
     )
     effective_t = args.timesteps if args.timesteps is not None else scheduler.num_timesteps
-    print(f"Loaded checkpoint from epoch {epoch}")
+    print(f"Loaded checkpoint from epoch {epoch} | mode={mode}")
     print(
         f"Device: {device} | dataset={config.get('dataset', 'MNIST')} | "
         f"T={effective_t} | mask={args.mask_type} | center_ratio={center_ratio} | "
@@ -190,11 +199,14 @@ def main() -> None:
         else ""
     )
     ratio_tag = f"_cr{center_ratio:.2f}".replace(".", "")
+    mode_tag = "_uncond" if mode == "unconditional" else ""
     out_path = (
         args.out_dir
-        / f"inpaint_{args.mask_type}_epoch_{epoch_tag}{ratio_tag}{resample_tag}.png"
+        / f"inpaint_{args.mask_type}_epoch_{epoch_tag}{ratio_tag}{resample_tag}{mode_tag}.png"
     )
-    title = f"Inpainting ({args.mask_type}, cr={center_ratio:.2f}, epoch {epoch}"
+    title = (
+        f"Inpainting ({mode}, {args.mask_type}, cr={center_ratio:.2f}, epoch {epoch}"
+    )
     if args.jump_n_sample > 1:
         title += f", RePaint j={args.jump_length} r={args.jump_n_sample}"
     title += ")"
