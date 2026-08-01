@@ -9,7 +9,7 @@ Usage:
         --mask-type center --max-samples 32 --jump-length 10 --jump-n-sample 5
     python scripts/evaluate.py --config configs/celeba.yaml \\
         --checkpoint outputs/celeba/checkpoints/epoch_030.pt \\
-        --mask-type center --center-ratio 0.4 --max-samples 32 --timesteps 250
+        --mask-type center --center-ratio 0.4 --max-samples 32
 """
 
 from __future__ import annotations
@@ -56,7 +56,13 @@ def parse_args() -> argparse.Namespace:
         "--timesteps",
         type=int,
         default=None,
-        help="Override reverse steps (default: full T from checkpoint)",
+        help="Reverse steps (default: full trained T). Truncation is refused "
+        "unless --allow-unsafe-timesteps is set.",
+    )
+    parser.add_argument(
+        "--allow-unsafe-timesteps",
+        action="store_true",
+        help="Allow num_timesteps < trained T (ablation only; causes seam artifacts).",
     )
     parser.add_argument("--jump-length", type=int, default=10)
     parser.add_argument(
@@ -205,6 +211,7 @@ def main() -> None:
             jump_length=args.jump_length,
             jump_n_sample=args.jump_n_sample,
             show_progress=False,
+            allow_unsafe_timesteps=args.allow_unsafe_timesteps,
         )
 
         for i in range(originals.shape[0]):

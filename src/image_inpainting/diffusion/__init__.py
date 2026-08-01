@@ -5,7 +5,11 @@ from image_inpainting.diffusion.checkpointing import (
     load_inpainting_checkpoint,
     load_unconditional_checkpoint,
 )
-from image_inpainting.diffusion.inpaint_sampler import get_repaint_schedule, inpaint
+from image_inpainting.diffusion.inpaint_sampler import (
+    get_repaint_schedule,
+    inpaint,
+    resolve_inpaint_timesteps,
+)
 
 __all__ = [
     "inpaint",
@@ -13,4 +17,5 @@ __all__ = [
     "load_inpainting_checkpoint",
     "load_unconditional_checkpoint",
     "get_repaint_schedule",
+    "resolve_inpaint_timesteps",
 ]

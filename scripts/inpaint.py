@@ -51,7 +51,13 @@ def parse_args() -> argparse.Namespace:
         "--timesteps",
         type=int,
         default=None,
-        help="Optional fewer reverse steps for a quick preview (default: full T)",
+        help="Reverse steps (default: full trained T). Truncation is refused "
+        "unless --allow-unsafe-timesteps is set.",
+    )
+    parser.add_argument(
+        "--allow-unsafe-timesteps",
+        action="store_true",
+        help="Allow num_timesteps < trained T (ablation only; causes seam artifacts).",
     )
     parser.add_argument(
         "--jump-length",
@@ -138,11 +144,14 @@ def main() -> None:
         if args.center_ratio is not None
         else float(config.get("center_ratio", 0.4))
     )
-    effective_t = args.timesteps if args.timesteps is not None else scheduler.num_timesteps
+    effective_t = (
+        args.timesteps if args.timesteps is not None else scheduler.num_timesteps
+    )
     print(f"Loaded checkpoint from epoch {epoch} | mode={mode}")
     print(
         f"Device: {device} | dataset={config.get('dataset', 'MNIST')} | "
-        f"T={effective_t} | mask={args.mask_type} | center_ratio={center_ratio} | "
+        f"T={effective_t} (trained={scheduler.num_timesteps}) | "
+        f"mask={args.mask_type} | center_ratio={center_ratio} | "
         f"jump_length={args.jump_length} | jump_n_sample={args.jump_n_sample}"
     )
 
@@ -185,6 +194,7 @@ def main() -> None:
         jump_length=args.jump_length,
         jump_n_sample=args.jump_n_sample,
         show_progress=True,
+        allow_unsafe_timesteps=args.allow_unsafe_timesteps,
     )
 
     # Known pixels must match the original exactly.

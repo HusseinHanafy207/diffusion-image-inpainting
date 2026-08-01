@@ -84,3 +84,40 @@ def test_inpaint_jump_n_sample_one_matches_no_jump_path() -> None:
         jump_n_sample=1,
     )
     assert ((result - original) * mask).abs().max().item() < 1e-5
+
+
+def test_resolve_inpaint_timesteps_refuses_unsafe_truncation() -> None:
+    from image_inpainting.diffusion import resolve_inpaint_timesteps
+
+    scheduler = NoiseScheduler(num_timesteps=1000, beta_start=1e-4, beta_end=0.02)
+    assert resolve_inpaint_timesteps(scheduler, None) == 1000
+    assert resolve_inpaint_timesteps(scheduler, 1000) == 1000
+    try:
+        resolve_inpaint_timesteps(scheduler, 250)
+        raise AssertionError("expected ValueError for truncated timesteps")
+    except ValueError as exc:
+        assert "Refusing truncated schedule" in str(exc)
+    assert (
+        resolve_inpaint_timesteps(scheduler, 250, allow_unsafe_timesteps=True) == 250
+    )
+
+
+def test_inpaint_rejects_truncated_timesteps_by_default() -> None:
+    model = _tiny_model().eval()
+    scheduler = NoiseScheduler(num_timesteps=20, beta_start=1e-4, beta_end=0.02)
+    original = torch.rand(1, 1, 28, 28)
+    mask = torch.ones(1, 1, 28, 28)
+    mask[:, :, 8:16, 8:16] = 0.0
+    try:
+        inpaint(
+            model,
+            scheduler,
+            original * mask,
+            mask,
+            original=original,
+            num_timesteps=10,
+            jump_n_sample=1,
+        )
+        raise AssertionError("expected ValueError")
+    except ValueError as exc:
+        assert "Refusing truncated schedule" in str(exc)

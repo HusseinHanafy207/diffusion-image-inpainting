@@ -71,6 +71,44 @@ def _undo_step(scheduler: Any, x: torch.Tensor, t_next: int) -> torch.Tensor:
     return torch.sqrt(1.0 - beta) * x + torch.sqrt(beta) * noise
 
 
+def resolve_inpaint_timesteps(
+    scheduler: Any,
+    num_timesteps: int | None,
+    *,
+    allow_unsafe_timesteps: bool = False,
+) -> int:
+    """Resolve how many reverse steps to run.
+
+    Starting from pure noise while only walking the *first* ``N < T`` indices of
+    a trained ``T``-step schedule is **unsafe**: at small ``t``, ``√ᾱ_t`` is
+    still large, so the model expects mostly-clean signal but receives
+    ``N(0,I)``. That recreates a clean/noisy seam after the first known-pixel
+    stitch and produces systematic dark-hole artifacts on faces.
+
+    Default behavior: require ``num_timesteps is None`` or ``== T``. Pass
+    ``allow_unsafe_timesteps=True`` only for deliberate ablation of this bug.
+    """
+    trained_t = int(scheduler.num_timesteps)
+    if num_timesteps is None:
+        return trained_t
+    steps = int(num_timesteps)
+    if steps < 1:
+        raise ValueError(f"num_timesteps must be >= 1, got {steps}")
+    if steps > trained_t:
+        raise ValueError(
+            f"num_timesteps ({steps}) cannot exceed scheduler.num_timesteps ({trained_t})"
+        )
+    if steps < trained_t and not allow_unsafe_timesteps:
+        raise ValueError(
+            f"Refusing truncated schedule steps={steps} < trained T={trained_t}. "
+            "Pure noise is only valid near t≈T−1; truncating to the first N indices "
+            "causes severe seam artifacts (e.g. CelebA 'sunglasses'). "
+            "Omit --timesteps to use full T, or pass --allow-unsafe-timesteps to "
+            "override for ablation."
+        )
+    return steps
+
+
 def _reverse_and_stitch(
     model: Any,
     scheduler: Any,
@@ -106,6 +144,7 @@ def inpaint(
     jump_length: int = 10,
     jump_n_sample: int = 10,
     show_progress: bool = False,
+    allow_unsafe_timesteps: bool = False,
 ) -> torch.Tensor:
     """Fill missing regions via RePaint reverse diffusion + resampling.
 
@@ -123,7 +162,8 @@ def inpaint(
         Full clean image for known-region resampling.
         If ``None``, falls back to ``masked_image``.
     num_timesteps:
-        Override ``scheduler.num_timesteps`` when set.
+        Must be ``None`` (use full ``T``) or equal to ``scheduler.num_timesteps``
+        unless ``allow_unsafe_timesteps=True``.
     jump_length:
         Forward jump size ``j`` (paper default 10). Set ``jump_n_sample=1``
         to disable resampling.
@@ -131,6 +171,8 @@ def inpaint(
         Resample count ``r`` (paper default 10). ``1`` = no extra jumps.
     show_progress:
         Show a tqdm bar over schedule transitions.
+    allow_unsafe_timesteps:
+        Permit truncated schedules for ablation only (not for demos).
 
     Returns
     -------
@@ -161,7 +203,11 @@ def inpaint(
 
     x = torch.randn_like(known_clean)
 
-    steps = int(num_timesteps if num_timesteps is not None else scheduler.num_timesteps)
+    steps = resolve_inpaint_timesteps(
+        scheduler,
+        num_timesteps,
+        allow_unsafe_timesteps=allow_unsafe_timesteps,
+    )
     times = get_repaint_schedule(steps, jump_length=jump_length, jump_n_sample=jump_n_sample)
     pairs = list(zip(times[:-1], times[1:]))
     iterator = tqdm(pairs, desc="inpainting", leave=False) if show_progress else pairs

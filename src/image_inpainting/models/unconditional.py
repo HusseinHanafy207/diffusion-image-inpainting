@@ -1,7 +1,7 @@
 """Unconditional DDPM denoiser for RePaint-style inference.
 
 Training uses a standard ``generative_models.ddpm.DDPM`` (noise ε̂ from ``x_t``
-only — no mask channels). At inference we wrap the U-Net so the existing
+only — no mask channels). At inference I wrap the U-Net so the existing
 RePaint ``inpaint()`` API still receives ``(x_t, t, masked_image, mask)`` but
 ignores the conditioning tensors.
 """
