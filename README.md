@@ -129,8 +129,9 @@ python scripts/inpaint.py --config configs/celeba.yaml \
   --jump-length 10 --jump-n-sample 5
 python scripts/evaluate.py --config configs/celeba.yaml \
   --checkpoint outputs/celeba/checkpoints/epoch_030.pt \
-  --mask-type center --center-ratio 0.4 --max-samples 32 \
-  --jump-length 10 --jump-n-sample 5
+  --mask-type center --center-ratio 0.4 --max-samples 100 \
+  --jump-length 10 --jump-n-sample 5 --lpips
+# LPIPS requires: pip install -e ".[perceptual]"  (or: pip install lpips)
 
 # Unconditional
 python scripts/train_unconditional.py --config configs/celeba_unconditional.yaml --epochs 40

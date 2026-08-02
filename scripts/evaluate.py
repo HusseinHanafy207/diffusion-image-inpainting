@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Evaluate inpainting quality (PSNR / SSIM).
+"""Evaluate inpainting quality (PSNR / SSIM / optional LPIPS).
 
 Compares damaged input and inpainted output against ground truth.
 
@@ -9,7 +9,7 @@ Usage:
         --mask-type center --max-samples 32 --jump-length 10 --jump-n-sample 5
     python scripts/evaluate.py --config configs/celeba.yaml \\
         --checkpoint outputs/celeba/checkpoints/epoch_030.pt \\
-        --mask-type center --center-ratio 0.4 --max-samples 32
+        --mask-type center --center-ratio 0.4 --max-samples 100 --lpips
 """
 
 from __future__ import annotations
@@ -33,7 +33,9 @@ from image_inpainting.utils import imshow_tensor
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Evaluate inpainting PSNR / SSIM")
+    parser = argparse.ArgumentParser(
+        description="Evaluate inpainting PSNR / SSIM / optional LPIPS"
+    )
     parser.add_argument("--config", type=Path, default=Path("configs/mnist.yaml"))
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument(
@@ -93,6 +95,11 @@ def parse_args() -> argparse.Namespace:
         "--unconditional",
         action="store_true",
         help="Load an unconditional DDPM checkpoint (mask used only in RePaint stitch).",
+    )
+    parser.add_argument(
+        "--lpips",
+        action="store_true",
+        help="Also report LPIPS (AlexNet). Requires: pip install lpips",
     )
     return parser.parse_args()
 
@@ -166,8 +173,19 @@ def main() -> None:
         f"Device: {device} | dataset={config.get('dataset', 'MNIST')} | "
         f"mask={args.mask_type} | center_ratio={center_ratio} | "
         f"samples={args.max_samples} | "
-        f"jump_length={args.jump_length} | jump_n_sample={args.jump_n_sample}"
+        f"jump_length={args.jump_length} | jump_n_sample={args.jump_n_sample} | "
+        f"lpips={args.lpips}"
     )
+
+    lpips_fn = None
+    if args.lpips:
+        try:
+            import lpips
+        except ImportError as exc:
+            raise SystemExit(
+                "LPIPS requested but package not installed. Run: pip install lpips"
+            ) from exc
+        lpips_fn = lpips.LPIPS(net="alex").to(device).eval()
 
     base = get_base_dataset(
         str(config.get("dataset", "MNIST")),
@@ -220,18 +238,19 @@ def main() -> None:
             p = preds[i : i + 1]
             mk = masks[i : i + 1]
 
-            out_m = compute_metrics(p, o, mask=mk)
+            out_m = compute_metrics(p, o, mask=mk, lpips_fn=lpips_fn)
             in_m = compute_metrics(m, o, mask=mk)
-            per_image.append(
-                {
-                    "psnr_input": in_m["psnr"],
-                    "ssim_input": in_m["ssim"],
-                    "psnr_hole_input": in_m["psnr_hole"],
-                    "psnr_output": out_m["psnr"],
-                    "ssim_output": out_m["ssim"],
-                    "psnr_hole_output": out_m["psnr_hole"],
-                }
-            )
+            row = {
+                "psnr_input": in_m["psnr"],
+                "ssim_input": in_m["ssim"],
+                "psnr_hole_input": in_m["psnr_hole"],
+                "psnr_output": out_m["psnr"],
+                "ssim_output": out_m["ssim"],
+                "psnr_hole_output": out_m["psnr_hole"],
+            }
+            if lpips_fn is not None:
+                row["lpips_output"] = out_m["lpips"]
+            per_image.append(row)
 
             if len(vis_originals) < args.num_vis:
                 vis_originals.append(o[0].cpu())
@@ -264,6 +283,10 @@ def main() -> None:
         "psnr_hole_output_mean": _mean_std(col("psnr_hole_output"))[0],
         "psnr_hole_output_std": _mean_std(col("psnr_hole_output"))[1],
     }
+    if lpips_fn is not None:
+        lp_mean, lp_std = _mean_std(col("lpips_output"))
+        summary["lpips_output_mean"] = lp_mean
+        summary["lpips_output_std"] = lp_std
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     epoch_tag = f"{epoch:03d}" if isinstance(epoch, int) else str(epoch)
@@ -311,6 +334,11 @@ def main() -> None:
         f"Hole   PSNR (in->out): "
         f"{summary['psnr_hole_input_mean']:.2f} -> {summary['psnr_hole_output_mean']:.2f}"
     )
+    if lpips_fn is not None:
+        print(
+            f"Output LPIPS:       "
+            f"{summary['lpips_output_mean']:.4f} +/- {summary['lpips_output_std']:.4f}"
+        )
     print(f"Per-image CSV:     {csv_path}")
     print(f"Summary JSON:      {json_path}")
     print(f"Comparison grid:   {grid_path}")
