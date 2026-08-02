@@ -232,3 +232,6 @@ outputs/**
 
 # Personal reflection notes (publish at end of project)
 docs/challenges-log.md
+
+# Local paper scratch (eval CSVs, FaceNet dumps, helper scripts)
+docs/paper_artifacts/
