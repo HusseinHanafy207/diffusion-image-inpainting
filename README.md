@@ -1,110 +1,83 @@
 # Diffusion Image Inpainting
 
-Mask-conditioned and unconditional **DDPM inpainting** with **RePaint**, built on my
-[`generative-models`](https://github.com/HusseinHanafy207/generative-models) package
+Mask-conditioned and unconditional **DDPM inpainting** with **RePaint**, built on
+[`generative-models`](https://github.com/HusseinHanafy207/generative-models)
 (noise schedule and U-Net reused, not copied).
+
+**Main finding:** inference protocol is part of the result. Truncating reverse sampling
+below the trained $T$ while starting from pure noise produces systematic face artifacts
+and understates metrics; full $T{=}1000$ restores coherent fills on the same checkpoints.
 
 ```text
 image_inpainting  →  imports  →  generative_models.ddpm
 ```
 
-| Stage | Dataset | Status |
-|-------|---------|--------|
-| 1 | MNIST | Done |
-| 2 | Fashion-MNIST | Done |
-| 3 | CelebA (64×64) | Done |
-| — | Places365 / medical | Future |
+| Dataset | Status |
+|---------|--------|
+| MNIST / Fashion-MNIST | Done |
+| CelebA $64\times64$ | Done |
+| Places365 / medical | Future |
+
+Technical report: [`docs/final_paper.pdf`](docs/final_paper.pdf) · Overleaf sources: [`docs/paper_overleaf.zip`](docs/paper_overleaf.zip)
 
 ---
 
 ## Method
 
-**Conditioned train.** Concatenate noisy latents with mask context:
-
-```text
-concat(x_t, masked_image, mask)  →  ε̂     # MSE vs true noise
-```
-
-**Unconditional train.** Standard RGB DDPM on clean faces (`in_channels=3`).
-
-**Inference (both).** RePaint: reverse step → stitch known pixels at matching noise
-`q(x₀, t−1)` → optional jumps `(j, r)`. Use **full trained T** (default 1000).
-Truncating `--timesteps` below `T` from pure noise is refused unless
-`--allow-unsafe-timesteps`.
+- **Conditioned train:** `concat(x_t, masked_image, mask) → ε̂` (noise MSE)
+- **Unconditional train:** standard RGB face DDPM (`in_channels=3`)
+- **Inference:** RePaint with noise-matched known-pixel stitch and jumps `(j, r)`  
+  Default reverse length = trained $T$. Truncation from pure noise is refused unless
+  `--allow-unsafe-timesteps`.
 
 <p align="center">
-  <img src="docs/assets/inpaint_center_noise_matched.png" alt="Noise-matched stitch" width="420" />
+  <img src="docs/assets/inpaint_center_noise_matched.png" alt="Noise-matched stitch" width="400" />
 </p>
-<p align="center"><em>Noise-matched known-pixel stitch (MNIST).</em></p>
 
 ---
 
 ## Results
 
-### MNIST / Fashion-MNIST
+### Protocol sensitivity (CelebA)
 
-Center mask, epoch 40, RePaint `j=10`, `r=5`:
+Conditioned `epoch_030`, center `cr=0.4`, $n{=}100$, RePaint $j{=}10$, $r{=}5$.
+Paired tests: ΔPSNR $= 7.61$ dB ($p = 3.06\times10^{-23}$), ΔLPIPS $= -0.071$ ($p = 2.98\times10^{-19}$).
 
-| Dataset | PSNR ↑ | SSIM ↑ |
-|---------|--------|--------|
-| MNIST | ~19.3 | ~0.89 |
-| Fashion-MNIST | ~24.1 | ~0.87 |
-
-<p align="center">
-  <img src="docs/assets/inpaint_center_repaint_j10r5.png" alt="MNIST RePaint" width="380" />
-  <img src="docs/assets/fashion_inpaint_center_j10r5.png" alt="Fashion-MNIST RePaint" width="380" />
-</p>
-
-### CelebA — protocol sensitivity
-
-Same conditioned checkpoint (`epoch_030`), center `cr=0.4`, `n=32`, RePaint `j=10`, `r=5`.
-Truncating the reverse chain to `T'=250` while starting from pure noise produces
-systematic dark “sunglasses” fills; full `T=1000` restores coherent faces
-(paired *t*-test on PSNR: *p* = 1.84×10⁻⁵, ΔPSNR = 5.99 dB).
-
-| Reverse length | PSNR ↑ | SSIM ↑ | Hole PSNR ↑ |
-|----------------|--------|--------|-------------|
-| `T'=250` (unsafe) | 20.57 ± 5.55 | 0.858 ± 0.063 | 12.75 ± 5.55 |
-| Full `T=1000` | 26.56 ± 4.27 | 0.932 ± 0.027 | 18.73 ± 4.27 |
+| Reverse length | PSNR ↑ | SSIM ↑ | Hole PSNR ↑ | LPIPS ↓ |
+|----------------|--------|--------|-------------|---------|
+| $T'{=}250$ (mismatched) | $19.75 \pm 5.40$ | $0.852 \pm 0.060$ | $11.93$ | $0.102 \pm 0.063$ |
+| Full $T{=}1000$ | $27.36 \pm 3.45$ | $0.939 \pm 0.025$ | $19.53$ | $0.031 \pm 0.020$ |
 
 <p align="center">
-  <img src="docs/assets/celeba_t250_vs_t1000.png" alt="CelebA T=250 vs T=1000" width="720" />
+  <img src="docs/assets/celeba_protocol_hero.png" alt="Protocol hero figure" width="780" />
 </p>
-
-### CelebA — stratified masks (full T)
-
-Conditioned `epoch_030`, full `T=1000`:
-
-| Setting | PSNR ↑ | SSIM ↑ | Hole PSNR ↑ |
-|---------|--------|--------|-------------|
-| Center `cr=0.20` | 37.67 | 0.992 | 23.82 |
-| Center `cr=0.30` | 32.17 | 0.975 | 21.62 |
-| Center `cr=0.40` | 26.56 | 0.932 | 18.73 |
-| Brush | 40.47 | 0.994 | 25.71 |
-| Holes | 43.84 | 0.997 | 27.70 |
-
-Sparse masks are near-solved; large contiguous centers remain hardest.
-
-### CelebA — ablations & conditioned vs unconditional
-
-Center `cr=0.4`, full `T=1000`. Short finetunes help only modestly (~+2 dB vs epoch 30).
-Unconditional RePaint matches PSNR; FaceNet (VGGFace2) cosine similarity is
-**0.485 ± 0.187** (conditioned) vs **0.462 ± 0.172** (unconditional), `n=32`.
-
-| Checkpoint | PSNR ↑ | SSIM ↑ | Hole PSNR ↑ |
-|------------|--------|--------|-------------|
-| Baseline epoch 30 | 26.56 | 0.932 | 18.73 |
-| Baseline epoch 40 | 27.11 | 0.934 | 19.29 |
-| Phase 2 LR finetune (e35) | 28.56 | 0.942 | 20.73 |
-| Phase 3 hole-weighted loss (e40) | 28.65 | 0.942 | 20.82 |
-| Phase 4b curriculum (e50) | 28.63 | 0.943 | 20.81 |
-| Unconditional epoch 40 + RePaint | 26.93 | 0.928 | 19.10 |
 
 <p align="center">
-  <img src="docs/assets/celeba_conditioned_cr040_fullT.png" alt="CelebA conditioned" width="420" />
-  <img src="docs/assets/celeba_uncond_cr040_fullT.png" alt="CelebA unconditional" width="420" />
+  <img src="docs/assets/celeba_t250_vs_t1000.png" alt="Additional protocol examples" width="700" />
 </p>
-<p align="center"><em>Left: conditioned. Right: unconditional + RePaint. Full T, cr=0.4.</em></p>
+
+### Digits / clothing
+
+Center mask, epoch 40, full protocol: MNIST ~$19.3$ dB / $0.89$ SSIM; Fashion-MNIST ~$24.1$ dB / $0.87$ SSIM.
+
+<p align="center">
+  <img src="docs/assets/inpaint_center_repaint_j10r5.png" alt="MNIST" width="360" />
+  <img src="docs/assets/fashion_inpaint_center_j10r5.png" alt="Fashion-MNIST" width="360" />
+</p>
+
+### Mask difficulty & ablations (full $T$)
+
+Sparse brush/holes masks are near-solved; large centers remain hardest
+(`cr=0.2/0.3/0.4` PSNR $37.7$ / $32.2$ / $27.4$ at full $T$).
+Short finetunes (LR drop, hole-weighted loss, curriculum) give only modest gains (~$+2$ dB vs epoch 30).
+Unconditional RePaint matches conditioned PSNR; FaceNet identity
+($0.485 \pm 0.187$ vs $0.462 \pm 0.172$, $n{=}32$) is not statistically distinguishable
+($p{=}0.381$).
+
+<p align="center">
+  <img src="docs/assets/celeba_conditioned_cr040_fullT.png" alt="Conditioned" width="400" />
+  <img src="docs/assets/celeba_uncond_cr040_fullT.png" alt="Unconditional" width="400" />
+</p>
 
 Configs: `configs/celeba*.yaml`.
 
@@ -115,23 +88,23 @@ Configs: `configs/celeba*.yaml`.
 ```bash
 pip install -e /path/to/generative-models
 pip install -e ".[dev]"
+# optional LPIPS metrics:
+pip install -e ".[perceptual]"
 pytest -q
 ```
 
 ## Usage
 
 ```bash
-# Conditioned (omit --timesteps → full T)
+# Conditioned train / inpaint / eval (omit --timesteps → full T)
 python scripts/train.py --config configs/celeba.yaml --epochs 40
 python scripts/inpaint.py --config configs/celeba.yaml \
   --checkpoint outputs/celeba/checkpoints/epoch_030.pt \
-  --mask-type center --center-ratio 0.4 \
-  --jump-length 10 --jump-n-sample 5
+  --mask-type center --center-ratio 0.4 --jump-length 10 --jump-n-sample 5
 python scripts/evaluate.py --config configs/celeba.yaml \
   --checkpoint outputs/celeba/checkpoints/epoch_030.pt \
   --mask-type center --center-ratio 0.4 --max-samples 100 \
   --jump-length 10 --jump-n-sample 5 --lpips
-# LPIPS requires: pip install -e ".[perceptual]"  (or: pip install lpips)
 
 # Unconditional
 python scripts/train_unconditional.py --config configs/celeba_unconditional.yaml --epochs 40
@@ -141,22 +114,15 @@ python scripts/inpaint.py --config configs/celeba_unconditional.yaml \
   --jump-length 10 --jump-n-sample 5
 ```
 
----
-
-## Technical report
-
-Workshop-style LaTeX writeup:
-[`docs/paper_overleaf.zip`](docs/paper_overleaf.zip)
-(Overleaf → New Project → Upload Project → Recompile with pdfLaTeX).
-
 ```text
-configs/   scripts/   src/image_inpainting/   tests/   docs/assets/
+configs/  scripts/  src/image_inpainting/  tests/  docs/
 ```
 
 ## References
 
-- [DDPM](https://arxiv.org/abs/2006.11239) — base model (sibling package)
+- [DDPM](https://arxiv.org/abs/2006.11239) — base diffusion model
 - [RePaint](https://arxiv.org/abs/2201.09865) — inference constraints + resampling
+- [LPIPS](https://arxiv.org/abs/1801.03924) — perceptual distance
 
 ## License
 

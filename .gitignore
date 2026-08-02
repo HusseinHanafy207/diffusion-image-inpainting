@@ -236,5 +236,6 @@ docs/challenges-log.md
 # Local paper scratch (eval CSVs, FaceNet dumps, helper scripts)
 docs/paper_artifacts/
 
-# Working extract of the Overleaf project (ship the zip only)
+# Working extract of the Overleaf project (ship the zip / PDF)
 docs/paper_overleaf/
+docs/paper_overleaf_review/
