@@ -1,15 +1,8 @@
 #!/usr/bin/env python
-"""Evaluate inpainting quality (PSNR / SSIM / optional LPIPS).
+"""Evaluate inpainting quality (PSNR / SSIM / LPIPS).
 
 Compares damaged input and inpainted output against ground truth.
 
-Usage:
-    python scripts/evaluate.py --checkpoint outputs/checkpoints/latest.pt
-    python scripts/evaluate.py --checkpoint outputs/checkpoints/epoch_040.pt \\
-        --mask-type center --max-samples 32 --jump-length 10 --jump-n-sample 5
-    python scripts/evaluate.py --config configs/celeba.yaml \\
-        --checkpoint outputs/celeba/checkpoints/epoch_030.pt \\
-        --mask-type center --center-ratio 0.4 --max-samples 100 --lpips
 """
 
 from __future__ import annotations
@@ -101,6 +94,16 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Also report LPIPS (AlexNet). Requires: pip install lpips",
     )
+    parser.add_argument(
+        "--reseed-per-sample",
+        action="store_true",
+        help=(
+            "Reset torch RNG with (seed + sample_index) before each image. "
+            "Use with --batch-size 1 so paired runs that differ only in "
+            "jump_n_sample share the same initial x_T (and undo noise stream "
+            "offset is fixed per image, not polluted by prior images' r)."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -174,8 +177,14 @@ def main() -> None:
         f"mask={args.mask_type} | center_ratio={center_ratio} | "
         f"samples={args.max_samples} | "
         f"jump_length={args.jump_length} | jump_n_sample={args.jump_n_sample} | "
-        f"lpips={args.lpips}"
+        f"lpips={args.lpips} | reseed_per_sample={args.reseed_per_sample}"
     )
+
+    if args.reseed_per_sample and args.batch_size != 1:
+        raise SystemExit(
+            "--reseed-per-sample requires --batch-size 1 "
+            "(otherwise a batch shares one RNG draw for x_T)."
+        )
 
     lpips_fn = None
     if args.lpips:
@@ -213,11 +222,19 @@ def main() -> None:
     vis_originals: list[torch.Tensor] = []
     vis_masked: list[torch.Tensor] = []
     vis_inpainted: list[torch.Tensor] = []
+    sample_offset = 0
 
     for originals, masked, masks in tqdm(loader, desc="evaluate"):
         originals = originals.to(device)
         masked = masked.to(device)
         masks = masks.to(device)
+
+        if args.reseed_per_sample:
+            # Deterministic per-image seed so paired r-ablation runs share x_T.
+            s = int(args.seed) + int(sample_offset)
+            torch.manual_seed(s)
+            if device.type == "cuda":
+                torch.cuda.manual_seed_all(s)
 
         preds = inpaint(
             model,
@@ -231,6 +248,7 @@ def main() -> None:
             show_progress=False,
             allow_unsafe_timesteps=args.allow_unsafe_timesteps,
         )
+        sample_offset += originals.shape[0]
 
         for i in range(originals.shape[0]):
             o = originals[i : i + 1]
@@ -271,6 +289,7 @@ def main() -> None:
         "jump_n_sample": args.jump_n_sample,
         "timesteps": args.timesteps,
         "seed": args.seed,
+        "reseed_per_sample": bool(args.reseed_per_sample),
         "psnr_input_mean": _mean_std(col("psnr_input"))[0],
         "psnr_input_std": _mean_std(col("psnr_input"))[1],
         "ssim_input_mean": _mean_std(col("ssim_input"))[0],
@@ -292,9 +311,10 @@ def main() -> None:
     epoch_tag = f"{epoch:03d}" if isinstance(epoch, int) else str(epoch)
     ratio_tag = f"_cr{center_ratio:.2f}".replace(".", "")
     mode_tag = "_uncond" if mode == "unconditional" else ""
+    r_tag = f"_j{args.jump_length}r{args.jump_n_sample}"
     stem = (
         f"eval_{args.mask_type}{ratio_tag}_epoch_{epoch_tag}"
-        f"_j{args.jump_length}r{args.jump_n_sample}{mode_tag}"
+        f"{r_tag}{mode_tag}"
     )
 
     csv_path = args.out_dir / f"{stem}.csv"
