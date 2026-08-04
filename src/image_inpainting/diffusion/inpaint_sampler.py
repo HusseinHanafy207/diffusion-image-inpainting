@@ -9,6 +9,11 @@ diffusion time by ``jump_length`` steps (add noise), then denoise again.
 Repeating this ``jump_n_sample`` times lets the U-Net re-harmonize the hole
 with the known region.
 
+Timestep respacing: ``num_timesteps=N < T`` (without ``allow_unsafe_timesteps``)
+builds a short schedule whose noise levels match selected steps of the trained
+``T``-step process (RePaint / guided-diffusion). The U-Net still sees original
+timesteps via ``SpacedNoiseScheduler.map_timesteps``.
+
 Dependencies reused from ``generative_models.ddpm``:
     - NoiseScheduler.p_sample_step
     - NoiseScheduler.q_sample
@@ -20,6 +25,8 @@ from typing import Any
 
 import torch
 from tqdm import tqdm
+
+from image_inpainting.diffusion.respace import create_respaced_scheduler
 
 
 def get_repaint_schedule(
@@ -71,22 +78,50 @@ def _undo_step(scheduler: Any, x: torch.Tensor, t_next: int) -> torch.Tensor:
     return torch.sqrt(1.0 - beta) * x + torch.sqrt(beta) * noise
 
 
+def resolve_inpaint_scheduler(
+    scheduler: Any,
+    num_timesteps: int | None,
+    *,
+    allow_unsafe_timesteps: bool = False,
+) -> Any:
+    """Resolve the schedule used for reverse sampling.
+
+    - ``None`` or ``== T``: use the trained scheduler as-is.
+    - ``N < T`` without ``allow_unsafe_timesteps``: RePaint-style **respacing**
+      (short β chain + ``timestep_map`` for the U-Net).
+    - ``N < T`` with ``allow_unsafe_timesteps``: truncated first-``N`` indices
+      of the trained schedule (ablation only; causes seam artifacts).
+    """
+    trained_t = int(scheduler.num_timesteps)
+    if num_timesteps is None:
+        return scheduler
+    steps = int(num_timesteps)
+    if steps < 1:
+        raise ValueError(f"num_timesteps must be >= 1, got {steps}")
+    if steps > trained_t:
+        raise ValueError(
+            f"num_timesteps ({steps}) cannot exceed scheduler.num_timesteps ({trained_t})"
+        )
+    if steps == trained_t:
+        return scheduler
+    if allow_unsafe_timesteps:
+        return scheduler
+    return create_respaced_scheduler(scheduler, steps)
+
+
 def resolve_inpaint_timesteps(
     scheduler: Any,
     num_timesteps: int | None,
     *,
     allow_unsafe_timesteps: bool = False,
 ) -> int:
-    """Resolve how many reverse steps to run.
+    """Resolve how many reverse steps to run (local schedule length).
 
-    Starting from pure noise while only walking the *first* ``N < T`` indices of
-    a trained ``T``-step schedule is **unsafe**: at small ``t``, ``√ᾱ_t`` is
-    still large, so the model expects mostly-clean signal but receives
-    ``N(0,I)``. That recreates a clean/noisy seam after the first known-pixel
-    stitch and produces systematic dark-hole artifacts on faces.
+    Prefer :func:`resolve_inpaint_scheduler` when you also need the schedule
+    object. This helper remains for callers that only need the step count.
 
-    Default behavior: require ``num_timesteps is None`` or ``== T``. Pass
-    ``allow_unsafe_timesteps=True`` only for deliberate ablation of this bug.
+    With respacing (default for ``N < T``), returns ``N``.
+    With ``allow_unsafe_timesteps``, returns ``N`` for truncated ablation.
     """
     trained_t = int(scheduler.num_timesteps)
     if num_timesteps is None:
@@ -98,15 +133,20 @@ def resolve_inpaint_timesteps(
         raise ValueError(
             f"num_timesteps ({steps}) cannot exceed scheduler.num_timesteps ({trained_t})"
         )
-    if steps < trained_t and not allow_unsafe_timesteps:
-        raise ValueError(
-            f"Refusing truncated schedule steps={steps} < trained T={trained_t}. "
-            "Pure noise is only valid near t≈T−1; truncating to the first N indices "
-            "causes severe seam artifacts (e.g. CelebA 'sunglasses'). "
-            "Omit --timesteps to use full T, or pass --allow-unsafe-timesteps to "
-            "override for ablation."
-        )
-    return steps
+    if steps < trained_t and allow_unsafe_timesteps:
+        return steps
+    if steps < trained_t:
+        # Respacing path: local length is N.
+        return steps
+    return trained_t
+
+
+def _model_timesteps(scheduler: Any, t_batch: torch.Tensor) -> torch.Tensor:
+    """Local schedule indices → U-Net timesteps (identity unless respaced)."""
+    map_fn = getattr(scheduler, "map_timesteps", None)
+    if map_fn is None:
+        return t_batch
+    return map_fn(t_batch)
 
 
 def _reverse_and_stitch(
@@ -118,9 +158,10 @@ def _reverse_and_stitch(
     mask: torch.Tensor,
     known_clean: torch.Tensor,
 ) -> torch.Tensor:
-    """Denoise at timestep ``t`` and stitch noise-matched known pixels."""
+    """Denoise at local timestep ``t`` and stitch noise-matched known pixels."""
     t_batch = torch.full((x.shape[0],), t, device=x.device, dtype=torch.long)
-    noise_pred = model(x, t_batch, masked_image, mask)
+    model_t = _model_timesteps(scheduler, t_batch)
+    noise_pred = model(x, model_t, masked_image, mask)
     x_unknown = scheduler.p_sample_step(x, t_batch, noise_pred)
 
     if t > 0:
@@ -162,8 +203,9 @@ def inpaint(
         Full clean image for known-region resampling.
         If ``None``, falls back to ``masked_image``.
     num_timesteps:
-        Must be ``None`` (use full ``T``) or equal to ``scheduler.num_timesteps``
-        unless ``allow_unsafe_timesteps=True``.
+        ``None`` (full trained ``T``), or ``N <= T``. When ``N < T`` without
+        ``allow_unsafe_timesteps``, uses RePaint-style respacing. With the
+        flag, truncates to the first ``N`` trained indices (ablation only).
     jump_length:
         Forward jump size ``j`` (paper default 10). Set ``jump_n_sample=1``
         to disable resampling.
@@ -172,7 +214,7 @@ def inpaint(
     show_progress:
         Show a tqdm bar over schedule transitions.
     allow_unsafe_timesteps:
-        Permit truncated schedules for ablation only (not for demos).
+        Use truncated (non-respaced) schedule for ablation only.
 
     Returns
     -------
@@ -203,11 +245,17 @@ def inpaint(
 
     x = torch.randn_like(known_clean)
 
-    steps = resolve_inpaint_timesteps(
+    trained_t = int(scheduler.num_timesteps)
+    use_scheduler = resolve_inpaint_scheduler(
         scheduler,
         num_timesteps,
         allow_unsafe_timesteps=allow_unsafe_timesteps,
     )
+    if allow_unsafe_timesteps and num_timesteps is not None and int(num_timesteps) < trained_t:
+        steps = int(num_timesteps)
+    else:
+        steps = int(use_scheduler.num_timesteps)
+
     times = get_repaint_schedule(steps, jump_length=jump_length, jump_n_sample=jump_n_sample)
     pairs = list(zip(times[:-1], times[1:]))
     iterator = tqdm(pairs, desc="inpainting", leave=False) if show_progress else pairs
@@ -216,10 +264,10 @@ def inpaint(
         if t_cur < t_last:
             # Reverse: denoise at t_last, stitch known at t_last-1.
             x = _reverse_and_stitch(
-                model, scheduler, x, t_last, masked_image, mask, known_clean
+                model, use_scheduler, x, t_last, masked_image, mask, known_clean
             )
         else:
             # Forward jump: add noise t_last → t_cur (always +1 in the schedule).
-            x = _undo_step(scheduler, x, t_next=t_cur)
+            x = _undo_step(use_scheduler, x, t_next=t_cur)
 
     return x.clamp(0.0, 1.0)

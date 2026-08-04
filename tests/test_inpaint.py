@@ -1,11 +1,18 @@
-"""Tests for reverse-diffusion inpainting (RePaint resampling)."""
+"""Tests for reverse-diffusion inpainting (RePaint resampling + respacing)."""
 
 from __future__ import annotations
 
 import torch
 from generative_models.ddpm import NoiseScheduler
 
-from image_inpainting.diffusion import inpaint
+from image_inpainting.diffusion import (
+    SpacedNoiseScheduler,
+    create_respaced_scheduler,
+    inpaint,
+    resolve_inpaint_scheduler,
+    resolve_inpaint_timesteps,
+    space_timesteps,
+)
 from image_inpainting.diffusion.inpaint_sampler import get_repaint_schedule
 from image_inpainting.models import ConditionedUNet
 
@@ -35,6 +42,57 @@ def test_repaint_schedule_has_forward_jumps() -> None:
     # Consecutive steps always differ by 1 (except the final -1 sentinel pairing).
     for t1, t2 in zip(times[:-1], times[1:]):
         assert abs(t1 - t2) == 1
+
+
+def test_space_timesteps_250_of_1000() -> None:
+    steps = space_timesteps(1000, 250)
+    assert len(steps) == 250
+    assert min(steps) == 0
+    assert max(steps) == 999
+
+
+def test_create_respaced_scheduler_maps_to_original_t() -> None:
+    base = NoiseScheduler(num_timesteps=1000, beta_start=1e-4, beta_end=0.02)
+    spaced = create_respaced_scheduler(base, 250)
+    assert isinstance(spaced, SpacedNoiseScheduler)
+    assert spaced.num_timesteps == 250
+    assert spaced.timestep_map[0] == 0
+    assert spaced.timestep_map[-1] == 999
+    # ᾱ at local end matches original ᾱ at last mapped step.
+    assert torch.isclose(
+        spaced.alphas_cumprod[-1],
+        base.alphas_cumprod[spaced.timestep_map[-1]],
+        rtol=0,
+        atol=1e-10,
+    )
+    t = torch.tensor([0, 1, 249], dtype=torch.long)
+    mapped = spaced.map_timesteps(t)
+    assert mapped.tolist() == [
+        spaced.timestep_map[0],
+        spaced.timestep_map[1],
+        spaced.timestep_map[249],
+    ]
+
+
+def test_resolve_inpaint_scheduler_respaces_by_default() -> None:
+    scheduler = NoiseScheduler(num_timesteps=1000, beta_start=1e-4, beta_end=0.02)
+    assert resolve_inpaint_timesteps(scheduler, None) == 1000
+    assert resolve_inpaint_timesteps(scheduler, 1000) == 1000
+    assert resolve_inpaint_timesteps(scheduler, 250) == 250
+
+    spaced = resolve_inpaint_scheduler(scheduler, 250)
+    assert isinstance(spaced, SpacedNoiseScheduler)
+    assert spaced.num_timesteps == 250
+    assert spaced.timestep_map[-1] == 999
+
+    # Unsafe truncation keeps the original scheduler object.
+    truncated = resolve_inpaint_scheduler(
+        scheduler, 250, allow_unsafe_timesteps=True
+    )
+    assert truncated is scheduler
+    assert (
+        resolve_inpaint_timesteps(scheduler, 250, allow_unsafe_timesteps=True) == 250
+    )
 
 
 def test_inpaint_preserves_known_pixels_with_resampling() -> None:
@@ -86,38 +144,50 @@ def test_inpaint_jump_n_sample_one_matches_no_jump_path() -> None:
     assert ((result - original) * mask).abs().max().item() < 1e-5
 
 
-def test_resolve_inpaint_timesteps_refuses_unsafe_truncation() -> None:
-    from image_inpainting.diffusion import resolve_inpaint_timesteps
-
-    scheduler = NoiseScheduler(num_timesteps=1000, beta_start=1e-4, beta_end=0.02)
-    assert resolve_inpaint_timesteps(scheduler, None) == 1000
-    assert resolve_inpaint_timesteps(scheduler, 1000) == 1000
-    try:
-        resolve_inpaint_timesteps(scheduler, 250)
-        raise AssertionError("expected ValueError for truncated timesteps")
-    except ValueError as exc:
-        assert "Refusing truncated schedule" in str(exc)
-    assert (
-        resolve_inpaint_timesteps(scheduler, 250, allow_unsafe_timesteps=True) == 250
-    )
-
-
-def test_inpaint_rejects_truncated_timesteps_by_default() -> None:
+def test_inpaint_respaced_timesteps_preserves_known_pixels() -> None:
+    """``num_timesteps=N < T`` uses respacing and still preserves known pixels."""
+    torch.manual_seed(2)
     model = _tiny_model().eval()
     scheduler = NoiseScheduler(num_timesteps=20, beta_start=1e-4, beta_end=0.02)
+
     original = torch.rand(1, 1, 28, 28)
     mask = torch.ones(1, 1, 28, 28)
     mask[:, :, 8:16, 8:16] = 0.0
-    try:
-        inpaint(
-            model,
-            scheduler,
-            original * mask,
-            mask,
-            original=original,
-            num_timesteps=10,
-            jump_n_sample=1,
-        )
-        raise AssertionError("expected ValueError")
-    except ValueError as exc:
-        assert "Refusing truncated schedule" in str(exc)
+    masked = original * mask
+
+    result = inpaint(
+        model,
+        scheduler,
+        masked,
+        mask,
+        original=original,
+        num_timesteps=10,
+        jump_n_sample=1,
+    )
+    assert result.shape == original.shape
+    assert ((result - original) * mask).abs().max().item() < 1e-5
+
+
+def test_inpaint_unsafe_truncation_still_runs() -> None:
+    """Explicit flag keeps the old truncated-schedule ablation path."""
+    torch.manual_seed(3)
+    model = _tiny_model().eval()
+    scheduler = NoiseScheduler(num_timesteps=20, beta_start=1e-4, beta_end=0.02)
+
+    original = torch.rand(1, 1, 28, 28)
+    mask = torch.ones(1, 1, 28, 28)
+    mask[:, :, 8:16, 8:16] = 0.0
+    masked = original * mask
+
+    result = inpaint(
+        model,
+        scheduler,
+        masked,
+        mask,
+        original=original,
+        num_timesteps=10,
+        jump_n_sample=1,
+        allow_unsafe_timesteps=True,
+    )
+    assert result.shape == original.shape
+    assert ((result - original) * mask).abs().max().item() < 1e-5

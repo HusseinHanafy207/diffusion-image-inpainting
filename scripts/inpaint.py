@@ -51,13 +51,15 @@ def parse_args() -> argparse.Namespace:
         "--timesteps",
         type=int,
         default=None,
-        help="Reverse steps (default: full trained T). Truncation is refused "
-        "unless --allow-unsafe-timesteps is set.",
+        help="Reverse steps (default: full trained T). N < T uses RePaint "
+        "respacing (paper: 250). Pass --allow-unsafe-timesteps for truncated "
+        "ablation instead.",
     )
     parser.add_argument(
         "--allow-unsafe-timesteps",
         action="store_true",
-        help="Allow num_timesteps < trained T (ablation only; causes seam artifacts).",
+        help="Use truncated first-N schedule instead of respacing "
+        "(ablation only; causes seam artifacts).",
     )
     parser.add_argument(
         "--jump-length",
@@ -144,13 +146,18 @@ def main() -> None:
         if args.center_ratio is not None
         else float(config.get("center_ratio", 0.4))
     )
-    effective_t = (
-        args.timesteps if args.timesteps is not None else scheduler.num_timesteps
-    )
+    trained_t = int(scheduler.num_timesteps)
+    effective_t = args.timesteps if args.timesteps is not None else trained_t
+    if args.timesteps is not None and int(args.timesteps) < trained_t:
+        schedule_mode = (
+            "unsafe-truncation" if args.allow_unsafe_timesteps else "respaced"
+        )
+    else:
+        schedule_mode = "full"
     print(f"Loaded checkpoint from epoch {epoch} | mode={mode}")
     print(
         f"Device: {device} | dataset={config.get('dataset', 'MNIST')} | "
-        f"T={effective_t} (trained={scheduler.num_timesteps}) | "
+        f"T={effective_t} (trained={trained_t}, {schedule_mode}) | "
         f"mask={args.mask_type} | center_ratio={center_ratio} | "
         f"jump_length={args.jump_length} | jump_n_sample={args.jump_n_sample}"
     )

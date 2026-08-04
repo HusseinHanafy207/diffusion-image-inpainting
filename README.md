@@ -27,8 +27,9 @@ Technical report: [`docs/final_paper.pdf`](docs/final_paper.pdf) · Overleaf sou
 - **Conditioned train:** `concat(x_t, masked_image, mask) → ε̂` (noise MSE)
 - **Unconditional train:** standard RGB face DDPM (`in_channels=3`)
 - **Inference:** RePaint with noise-matched known-pixel stitch and jumps `(j, r)`  
-  Default reverse length = trained $T$. Truncation from pure noise is refused unless
-  `--allow-unsafe-timesteps`.
+  Default reverse length = trained $T$. `--timesteps 250` uses RePaint **respacing**
+  (subsample the trained schedule). `--allow-unsafe-timesteps` keeps the mismatched
+  truncated ablation from the protocol table below.
 
 <p align="center">
   <img src="docs/assets/inpaint_center_noise_matched.png" alt="Noise-matched stitch" width="400" />
@@ -101,6 +102,11 @@ python scripts/train.py --config configs/celeba.yaml --epochs 40
 python scripts/inpaint.py --config configs/celeba.yaml \
   --checkpoint outputs/celeba/checkpoints/epoch_030.pt \
   --mask-type center --center-ratio 0.4 --jump-length 10 --jump-n-sample 5
+# Paper-style respacing (compare against full T above)
+python scripts/evaluate.py --config configs/celeba.yaml \
+  --checkpoint outputs/celeba/checkpoints/epoch_030.pt \
+  --mask-type center --center-ratio 0.4 --max-samples 100 \
+  --timesteps 250 --jump-length 10 --jump-n-sample 5 --lpips
 python scripts/evaluate.py --config configs/celeba.yaml \
   --checkpoint outputs/celeba/checkpoints/epoch_030.pt \
   --mask-type center --center-ratio 0.4 --max-samples 100 \
