@@ -23,9 +23,9 @@ Two write-ups document the research arc (PDFs in [`docs/`](docs/)):
 | Paper | PDF | One-line claim |
 |-------|-----|----------------|
 | **Technical report** — *Inference Protocol Matters* | [`docs/Technical_report.pdf`](docs/Technical_report.pdf) | Truncating reverse length below trained $T$ while starting from pure noise silently ruins face fills and metrics |
-| **Final paper** — *Resampling Is Not Always Better* | [`docs/Final_paper.pdf`](docs/Final_paper.pdf) | RePaint resampling $r$ **helps** unconditional models but **hurts** mask-conditioned ones on large contiguous holes |
+| **Final paper** — *Resampling Is Not Always Better* | [`docs/final_paper.pdf`](docs/final_paper.pdf) | RePaint resampling $r$ **helps** unconditional models but **hurts** mask-conditioned ones on large contiguous holes |
 
-LaTeX sources: [`docs/paper_overleaf/`](docs/paper_overleaf/) (technical report) · [`docs/paper_neurips/`](docs/paper_neurips/) (final paper).
+LaTeX sources: [`docs/paper_overleaf.zip`](docs/paper_overleaf.zip) (technical report) · [`docs/paper_neurips/`](docs/paper_neurips/) (final paper; also [`docs/paper_neurips.zip`](docs/paper_neurips.zip)).
 
 ---
 
@@ -248,9 +248,10 @@ tests/
 Results/                 # curated paper metrics, stats, heatmap (+ local checkpoints)
 docs/
   Technical_report.pdf
-  Final_paper.pdf
-  paper_overleaf/        # technical-report LaTeX
+  final_paper.pdf
+  paper_overleaf.zip     # technical-report LaTeX (folder is local-only)
   paper_neurips/         # final-paper LaTeX
+  paper_neurips.zip
   assets/                # README / technical-report figures
 outputs/                 # local training dumps (gitignored; use Results/ for paper numbers)
 ```
