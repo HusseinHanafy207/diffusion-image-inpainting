@@ -1,0 +1,22 @@
+\section{Introduction}
+\label{sec:intro}
+
+Diffusion models have become a default tool for image inpainting.
+When the generator is unconditional, the mask never enters training: known pixels must be enforced at inference.
+RePaint~\citep{lugmayr2022repaint} does this with a noise-matched stitch after each reverse step and, optionally, repeated forward--backward jumps controlled by a resampling count $r$.
+In that setting, larger $r$ is presented as a reliable way to harmonize the hole with its context---more opportunities for the prior and the known-pixel constraint to agree---at the cost of more network evaluations.
+The same $(j,r)$ recipe is easy to copy onto other pipelines, including mask-conditioned DDPMs that already concatenate known pixels and the mask as input channels~\citep{saharia2022palette}.
+That transfer looks harmless: resampling is ``just inference,'' so why should training regime matter?
+
+We show that it does.
+Under paired, seed-matched evaluation on CelebA~\citep{liu2015celeba} center masks, increasing $r$ has opposite effects depending on whether the network was trained with explicit mask conditioning.
+On our mask-conditioned DDPM, moving from $r{=}1$ to $r{=}10$ \emph{hurts} quality on large contiguous holes.
+On our unconditional DDPM, moving from $r{=}1$ to $r{=}5$ \emph{helps}, consistent with RePaint's original motivation.
+The interaction is large, statistically significant, and not explained by masked area alone: a brush-mask control with matched coverage shows no significant $r$ effect.
+Nor is the unconditional benefit an artifact of our architecture alone---RePaint's own pretrained CelebA-HQ checkpoint likewise improves with higher $r$, without the conditioned-style degradation.
+Because NFEs scale nearly linearly with $r$, the best setting for conditioned models on hard centers is also the cheapest ($r{=}1$).
+
+\paragraph{Contributions.}
+In summary: (i)~we document a conditioning$\times$resampling interaction under a fixed RePaint jump length and full reverse schedule; (ii)~we show the conditioned harm is specific to large contiguous holes via a matched-coverage brush control; (iii)~we corroborate the unconditional benefit on RePaint's released checkpoint as an external check; and (iv)~we argue for a regime-aware default---moderate $r$ for unconditional RePaint, $r{=}1$ for mask-conditioned models---rather than a single $(j,r)$ copied across both.
+Section~\ref{sec:related} positions this as a boundary condition on RePaint's resampling account, not a contradiction of it.
+Section~\ref{sec:method} details models, grid, and seeding; Section~\ref{sec:experiments} reports the paired results; Section~\ref{sec:discussion} offers a mechanism sketch (alternating projections vs.\ a static conditioning channel) and limitations, including schedule granularity as an open follow-up.

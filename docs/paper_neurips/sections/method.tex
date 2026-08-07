@@ -1,0 +1,103 @@
+\section{Method}
+\label{sec:method}
+
+We study how RePaint resampling interacts with the training regime used for diffusion inpainting.
+This section documents the models, training recipe, inference grid, and evaluation protocol used throughout.
+Architecture and schedule details match our prior technical report~\citep{hamouda2026protocol}; we summarize the essentials here for completeness.
+
+\subsection{Models}
+\label{sec:models}
+Both variants are $\varepsilon$-prediction DDPMs~\citep{ho2020ddpm} with a shared U-Net capacity recipe:
+base width $64$, channel multipliers $(1,2,4)$, two residual blocks per level, self-attention at $16{\times}16$, and dropout $0.1$.
+The diffusion schedule is linear with $T{=}1000$ and $\beta_t\in[10^{-4},0.02]$.
+Full layer definitions and training logs appear in~\citet{hamouda2026protocol}.
+
+\paragraph{Mask-conditioned DDPM.}
+The network predicts noise from the channel-wise concatenation
+$(x_t,\tilde{x}_0,m)\in\mathbb{R}^{7\times64\times64}$,
+where $\tilde{x}_0{=}m\odot x_0$ is the known-pixel image and $m\in\{0,1\}^{1\times64\times64}$ marks known pixels.
+This is the Palette-style conditioning path used in our prior work~\citep{hamouda2026protocol,saharia2022palette}.
+
+\paragraph{Unconditional DDPM.}
+The network receives only $x_t\in\mathbb{R}^{3\times64\times64}$ and never observes masks during training.
+At test time, the mask enters solely through RePaint's noise-matched known-pixel stitch and optional resampling jumps~\citep{lugmayr2022repaint}, matching the classic RePaint setup.
+
+\subsection{Training}
+\label{sec:training}
+We train on CelebA~\citep{liu2015celeba} faces: torchvision train split, center-crop $178{\times}178$, resize to $64{\times}64$, RGB in $[0,1]$.
+Both models use Adam with learning rate $2{\times}10^{-4}$ and batch size $32$, seeded identically at initialization (seed $42$).\footnote{%
+Training entrypoints call \texttt{torch.manual\_seed} with \texttt{seed: 42} from the released CelebA conditioned / unconditional YAML configs.}
+This training seed happens to equal the evaluation base seed used later, but the two uses are independent---weight initialization and data order for training, versus eval index permutation and per-sample $x_T$ for evaluation.
+
+The objective is standard noise-prediction MSE,
+$\mathcal{L}{=}\mathbb{E}\|\hat{\varepsilon}_\theta(\cdot,t)-\varepsilon\|_2^2$,
+with no hole weighting ($\lambda{=}0$).
+Conditioned training draws masks online from the set \{\textrm{center}, \textrm{rectangle}, \textrm{brush}, \textrm{holes}\};
+unconditional training uses clean images only.
+All quantitative results in this paper use the \textbf{epoch-$30$} checkpoint of each model (not later finetunes).
+
+\subsection{Inference: RePaint with $(j,r)$}
+\label{sec:inference}
+At test time we run full reverse length $T{=}1000$ (no truncated schedules).
+Let $m$ mark known pixels and $x_0$ the clean image.
+After a reverse step that produces a candidate hole fill $\hat{x}_{t-1}^{\mathrm{unk}}$, RePaint forms the noise-matched stitch
+\begin{equation}
+  x_{t-1}
+  \;=\;
+  m\odot q(x_0,t{-}1)
+  \;+\;
+  (1-m)\odot \hat{x}_{t-1}^{\mathrm{unk}},
+  \label{eq:stitch}
+\end{equation}
+where $q(x_0,t{-}1)$ is a forward diffusion sample of the known pixels to noise level $t{-}1$~\citep{lugmayr2022repaint}.
+When $r{>}1$, the sampler also applies forward jumps of length $j$: one step of the DDPM forward process
+\begin{equation}
+  x_{t}
+  \;=\;
+  \sqrt{1-\beta_{t}}\,x_{t-1}
+  \;+\;
+  \sqrt{\beta_{t}}\,\varepsilon,
+  \qquad \varepsilon\sim\mathcal{N}(0,I),
+  \label{eq:jump}
+\end{equation}
+then denoise and stitch again.
+Setting $r{=}1$ disables these jumps and retains only~\eqref{eq:stitch}.
+We do not shorten the reverse chain in the main grid, so reverse length equals the trained schedule.
+
+\subsection{Experiment grid}
+\label{sec:grid}
+Unless noted, evaluation uses the CelebA validation split and center square masks whose side length is $\mathrm{cr}\cdot H$ (deterministic given $\mathrm{cr}$).
+The primary grid is:
+\begin{itemize}
+  \item \textbf{Conditioned (epoch $30$), center masks.}
+  $\mathrm{cr}\in\{0.20,0.30,0.40,0.50\}$, $r\in\{1,5,10\}$.
+  Jump length is fixed at $j{=}10$ for $\mathrm{cr}\in\{0.20,0.30\}$.
+  For the harder masks $\mathrm{cr}\in\{0.40,0.50\}$ we additionally sweep $j\in\{5,10,20\}$ (crossed with $r\in\{1,5,10\}$, with $r{=}1$ always evaluated at $j{=}10$).
+  \item \textbf{Unconditional (epoch $30$), center masks.}
+  $\mathrm{cr}\in\{0.40,0.50\}$ only (no $0.20$/$0.30$), with the same hard-mask $j{\times}r$ structure as the conditioned $\mathrm{cr}\in\{0.40,0.50\}$ rows.
+  \item \textbf{Brush masks (conditioned only).}
+  Brush strokes with coverage matched to a $\mathrm{cr}{=}0.40$ center hole; $j{=}10$, $r\in\{1,10\}$ (no $r{=}5$).
+  \item \textbf{External qualitative check.}
+  We also run RePaint's publicly released unconditional CelebA-HQ checkpoint at $256{\times}256$ with respaced $T{=}100$, $j{=}10$, $r\in\{1,5,10\}$, $n{=}8$, for qualitative comparison only (no metrics).
+\end{itemize}
+
+\subsection{Evaluation protocol and seeding}
+\label{sec:eval-protocol}
+Each cell uses $n{=}32$ images, batch size $1$, and base seed $42$.
+Image indices are drawn once as a fixed length-$32$ permutation of the validation set under that seed, so every $(j,r,\mathrm{cr})$ cell for a given mask type shares the same identities.\footnote{%
+In the released evaluation script: a seeded length-$32$ random permutation of the validation indices.}
+Center masks are a deterministic function of $\mathrm{cr}$; brush masks follow the generator defaults for that run.
+
+\paragraph{Per-sample reseeding.}
+All paired ablations reseed the RNG before each image.
+Before inpainting sample $i\in\{0,\ldots,31\}$, we set the RNG seed to $42{+}i$.\footnote{%
+Implemented as a per-sample reseeding option in the released evaluation script (batch size $1$), so paired $r$/$j$ runs share the same $x_T$.}
+This makes the initial $x_T$ (and the stochastic reverse/jump noise stream keyed off that seed) identical across runs that differ only in $r$ or $j$, which is required for paired $\Delta$ statistics.
+Without reseeding, a longer $r$ would advance the global RNG and desynchronize later images.
+
+\subsection{Metrics}
+\label{sec:metrics}
+For every image we record image-wide PSNR, hole-only PSNR, SSIM~\citep{wang2004ssim}, and LPIPS~\citep{zhang2018lpips} (AlexNet).
+Headline significance tests in Section~\ref{sec:experiments} (Table~\ref{tab:resampling-delta}) use paired $\Delta$PSNR and $\Delta$LPIPS.
+We omit hole-PSNR from that table because, under our protocol, only the masked region changes between paired conditions, so hole-PSNR and image-PSNR differences are numerically equivalent in the paired tests.
+SSIM is tracked throughout and retained in the released per-image summaries, but is not used for the main significance analysis.

@@ -1,0 +1,31 @@
+\section{Related Work}
+\label{sec:related}
+
+\paragraph{Diffusion inpainting.}
+Denoising diffusion models~\citep{ho2020ddpm} have become a standard backbone for image restoration.
+Two common ways to incorporate a mask are (i)~training a conditional generator that sees known pixels and the mask as input channels~\citep{saharia2022palette}, and (ii)~taking an unconditional generator and enforcing the known-pixel constraint only at inference.
+RePaint~\citep{lugmayr2022repaint} is the leading instance of the latter: after each reverse step it reinserts noise-matched known pixels and, optionally, applies forward jumps with $r$ resampling passes to harmonize the hole with its context.
+Our conditioned pathway follows the Palette-style concat design; our unconditional pathway follows RePaint's inference recipe on a face DDPM trained without masks.
+
+\paragraph{RePaint resampling, and where we sit relative to it.}
+Lugmayr et al.\ motivate resampling as a way to give the model more opportunities to reconcile generated content with known pixels.
+In their resampling discussion they contrast this with ``slowing down'' the reverse process (more steps with smaller per-step variance); separately, their released configuration/implementation commonly operates on a coarser, respaced schedule ($T{\approx}250$) rather than the full trained length.
+We do not contradict their account in the setting for which it was designed.
+On unconditional models---our own epoch-$30$ CelebA DDPM at full $T{=}1000$, and RePaint's pretrained CelebA-HQ checkpoint under a coarse respaced schedule---increasing $r$ still improves seam consistency, in line with their resampling section.
+
+What we identify is a \textbf{boundary condition} on that mechanism.
+When the same RePaint $(j,r)$ loop is applied to a mask-conditioned DDPM that already observes $(\tilde{x}_0,m)$ at every reverse step, the resampling benefit is no longer universal: on large contiguous center holes, higher $r$ \emph{degrades} paired PSNR/LPIPS, while matched-coverage brush masks remain insensitive.
+In other words, RePaint's alternating-projection correction remains the right tool when the network has no built-in measurement channel; it is not a free lunch once that channel is trained in.
+Prior work that studies conditioned diffusion inpainting~\citep{saharia2022palette} or evaluates RePaint under a single default $(j,r)$ typically does not report this conditioning$\times$resampling interaction under seed-matched ablations.
+
+\paragraph{Adaptive $r$ vs.\ conditioning as a signal.}
+Adaptive resampling has also been proposed based on learned semantic-structure correlation in StrDiffusion~\citep{liu2024strdiffusion}.
+Our finding is a distinct, simpler signal---whether the network was trained with explicit mask conditioning at all, and whether the hole is large and contiguous---and applies even without any additional learned component.
+
+\paragraph{Orthogonality to accelerated sampling.}
+This is orthogonal to accelerated-sampling methods such as DDIM~\citep{song2021ddim} or progressive distillation~\citep{salimans2022distill}, which reduce the number of reverse timesteps; our finding concerns how many resampling passes to apply within a fixed reverse schedule, and could in principle be combined with either.
+
+\paragraph{Protocol and evaluation context.}
+Our earlier technical report~\citep{hamouda2026protocol} focused on a different failure mode---truncated reverse schedules that silently understate inpainting quality.
+The present paper assumes a correct full-$T$ (or properly respaced) reverse chain and instead asks when RePaint's own resampling hyperparameter helps or hurts.
+The two concerns are complementary: protocol mistakes can invent artifacts; resampling choices can still matter after the protocol is fixed.

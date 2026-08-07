@@ -225,7 +225,7 @@ outputs/**
 !outputs/**/
 !outputs/**/.gitkeep
 
-# Model checkpoints
+# Model checkpoints (including curated Results/ weights — too large for GitHub)
 *.pt
 *.pth
 *.ckpt
@@ -233,9 +233,12 @@ outputs/**
 # Personal reflection notes (publish at end of project)
 docs/challenges-log.md
 
-# Local paper scratch (eval CSVs, FaceNet dumps, helper scripts)
+# Local paper scratch (FaceNet dumps, helper scripts)
 docs/paper_artifacts/
 
-# Working extract of the Overleaf project (ship the zip / PDF)
+# Working extract of the Overleaf project (ship the zip / PDF; keep local edits)
 docs/paper_overleaf/
 docs/paper_overleaf_review/
+
+# Curated paper metrics/figures in Results/ are tracked (CSVs, JSON, PNGs).
+# Results/*.pt stay local only (GitHub 100MB limit / push size).

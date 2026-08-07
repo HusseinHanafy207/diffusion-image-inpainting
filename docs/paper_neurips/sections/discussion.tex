@@ -1,0 +1,72 @@
+\section{Discussion}
+\label{sec:discussion}
+
+\subsection{What needs explaining}
+The empirical pattern is sharp.
+On large contiguous center holes, increasing RePaint's resampling count $r$ \emph{hurts} our mask-conditioned DDPM and \emph{helps} our unconditional DDPM (Table~\ref{tab:resampling-delta}, Figures~\ref{fig:cond-r} and~\ref{fig:uncond-r}).
+Matched-coverage brush masks show no significant $r$ effect (Table~\ref{tab:brush-null}).
+RePaint's own pretrained unconditional CelebA-HQ checkpoint likewise improves with $r$ (Figure~\ref{fig:external-repaint}).
+We interpret this as a mismatch between RePaint's inference-time correction loop and how much measurement information the network already receives during each denoising step.
+
+\subsection{Unconditional: resampling as alternating projections}
+\label{sec:alt-proj}
+In the classic RePaint setting the U-Net never sees a mask: $\varepsilon_\theta=\varepsilon_\theta(x_t,t)$.
+Its reverse step proposes a full-image update $\hat{x}_{t-1}^{\mathrm{unk}}$; consistency with known pixels is enforced only by the stitch~\eqref{eq:stitch}, and when $r{>}1$ by forward jumps~\eqref{eq:jump}.
+Writing $P_{\mathrm{prior}}(x_t)$ for one reverse (denoising) step that uses $\varepsilon_\theta(x_t,t)$, and $P_{\mathrm{data}}$ for the known-pixel stitch, a resampling cycle is the composition
+\begin{align}
+  x_{t-1}
+  &\leftarrow
+  \underbrace{m\odot q(x_0,t{-}1)+(1-m)\odot P_{\mathrm{prior}}(x_t)}_{\text{known-pixel projection }P_{\mathrm{data}}},
+  \label{eq:proj-data}\\
+  x_{t}
+  &\leftarrow
+  \underbrace{\sqrt{1-\beta_{t}}\,x_{t-1}+\sqrt{\beta_{t}}\,\varepsilon}_{\text{re-noise / jump}},
+  \qquad \varepsilon\sim\mathcal{N}(0,I),
+  \label{eq:proj-jump}
+\end{align}
+repeated within the RePaint $(j,r)$ schedule.
+This is an instance of \emph{alternating projections}: $P_{\mathrm{prior}}$ moves toward the learned image manifold, $P_{\mathrm{data}}$ projects back onto the known-pixel constraint, and~\eqref{eq:proj-jump} reopens the hole so the pair can be applied again.
+Without those projections, the hole and the context disagree at the boundary---hence the blotchy seams at $r{=}1$ and the clear gain from $r{=}5$ on our unconditional model (and on the external CelebA-HQ checkpoint).
+Resampling is doing real work that the architecture does not otherwise provide.
+
+\subsection{Conditioned: a static conditioning channel already carries the constraint}
+Our conditioned model instead predicts $\varepsilon_\theta(x_t,t,\tilde{x}_0,m)$ from the concatenation $(x_t,\tilde{x}_0,m)$ at every reverse step.
+Known content is therefore not only an after-the-fact constraint $P_{\mathrm{data}}$; it is a \emph{static conditioning channel} the network was trained to read while predicting $\varepsilon$.
+Under that training regime, a single application of~\eqref{eq:stitch} at $r{=}1$ is usually enough: the reverse process is already steered by $(\tilde{x}_0,m)$, and large-center fills at $r{=}1$ are coherent (Figure~\ref{fig:cond-r}a).
+
+Raising $r$ re-imposes the alternating-projection loop~\eqref{eq:proj-data}--\eqref{eq:proj-jump} on top of that channel.
+Each extra jump re-noises the hole, re-denoises, and re-applies $P_{\mathrm{data}}$---repeatedly overwriting a fill that the conditioned predictor had already committed to.
+We hypothesize that this second consistency mechanism is largely redundant for a mask-conditioned $\varepsilon_\theta$, and on large contiguous holes it is actively harmful: the hole is big enough that re-harmonization can replace a sharp, identity-specific completion with an over-smoothed / washed-out compromise (Figure~\ref{fig:cond-r}b).
+In short, alternating projections fix a missing constraint in the unconditional case; they fight a constraint that is already inside the network in the conditioned case.
+
+\subsection{Why the brush null fits}
+If the harm were merely ``more compute'' or ``any missing pixels,'' matched-coverage brush masks should degrade similarly under $r{=}10$.
+They do not (Table~\ref{tab:brush-null}).
+Brush strokes leave dense local context adjacent to every missing pixel, so both the static conditioning channels and a single stitch already determine the fill; there is little contiguous region for repeated re-harmonization to rewrite.
+The conditioned $r$-harm is therefore geometry-specific: it tracks large contiguous holes where RePaint's loop has a coherent interior to overwrite, not masked area alone.
+
+\subsection{Practical implication}
+RePaint's default $(j,r)$ was designed for unconditional generators.
+Copying that recipe onto a Palette-style conditioned DDPM is not a neutral choice: on hard center masks it can cost ${\approx}10{\times}$ NFEs while lowering PSNR by ${\sim}2.7$\,dB.
+A regime-aware rule is simpler---use moderate resampling for our unconditional model (and classic unconditional RePaint); prefer $r{=}1$ (noise-matched stitch only) for mask-conditioned models on large contiguous holes (brush/sparse masks are insensitive to $r$ either way, so $r{=}1$ is a safe default there too)---and report $(j,r)$ jointly with the training mode.
+
+\subsection{Limitations of the mechanism story}
+This account is an interpretation of paired ablations, not a proof of the internal computation.
+We do not intervene on intermediate latents, ablate the conditioning channels at inference, or derive a formal fixed-point for the RePaint operator under concat-conditioning.
+Alternative explanations remain open, including capacity limits that make repeated resampling amplify a bad mode.
+
+\paragraph{Schedule granularity.}
+A particularly natural alternative---raised by RePaint's own discussion of per-step harmonization budget under finer schedules---is that resampling benefits are schedule-specific rather than conditioning-specific.
+Our headline grid (Table~\ref{tab:resampling-delta}) runs both of our models at full $T{=}1000$; the external check (Figure~\ref{fig:external-repaint}) uses a coarse respaced $T{=}100$ schedule but only for RePaint's pretrained CelebA-HQ checkpoint.
+We therefore evaluate the conditioned model only at full $T{=}1000$; whether the resampling-harm effect weakens or disappears at coarser, respaced schedules (as in RePaint's original $T{=}250$ setting) remains untested and is a natural target for follow-up work.
+That said, granularity alone does not explain the \emph{within}-schedule sign flip: at matched $T{=}1000$, the same $(j,r)$ recipe helps our unconditional model and hurts our conditioned one, which still points to conditioning as a driver even if schedule interacts with effect size.
+
+What the present data do pin down is that sign flip, its concentration on contiguous holes, and the fact that RePaint's pretrained CelebA-HQ checkpoint does not show conditioned-style degradation under higher $r$.
+
+\subsection{Scope limitations}
+Beyond the mechanism caveats above, the study itself is narrow.
+All quantitative claims use a single checkpoint epoch ($30$), one U-Net capacity recipe, and $64{\times}64$ CelebA only.
+Paired tests use $n{=}32$ seed-matched images; effect sizes are large for the conditioned harm, but broader populations and datasets are untested.
+Mask coverage is limited to center squares plus one brush control---not free-form or semantic masks at scale---and we do not ablate learned variance, classifier-free guidance, or latent-space / Stable-Diffusion-style inpainting pipelines.
+Wall-clock numbers are hardware-specific; NFE ratios are the portable cost measure.
+These bounds do not overturn the paired interaction we report, but they limit how far the practical ``$r{=}1$ for conditioned models, moderate $r$ for our unconditional model'' rule should be extrapolated without further evidence.

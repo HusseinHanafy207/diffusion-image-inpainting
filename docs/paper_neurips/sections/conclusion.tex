@@ -1,0 +1,7 @@
+\section{Conclusion}
+\label{sec:conclusion}
+
+We show that RePaint's resampling hyperparameter $r$ is not a universally beneficial default: under paired, seed-matched evaluation, increasing $r$ improves our unconditional DDPM but degrades a mask-conditioned DDPM on large contiguous holes, with effect sizes that are both large and highly significant.
+A matched-coverage brush-mask control and an external check on RePaint's own pretrained CelebA-HQ checkpoint rule out masked area and architecture-specific artifacts as explanations, pointing instead to mask conditioning itself as the driver.
+Because the best-performing setting for conditioned models ($r{=}1$) is also the cheapest, the practical rule is simple: match $(j,r)$ to the training regime rather than copying a single default across both.
+Whether this interaction persists at coarser respaced schedules, larger architectures, or other datasets remains open, and we see the conditioning$\times$resampling interaction identified here as a concrete, testable starting point for that follow-up work.
