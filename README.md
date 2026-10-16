@@ -126,7 +126,7 @@ Paper numbers, CSVs, and the LPIPS heatmap live in [`Results/`](Results/). Local
 
 ## Papers
 
-- [**Resampling Is Not Always Better**](docs/final_paper.pdf) — the finding above. IEEE/ICASSP source: [`docs/paper_ieee/`](docs/paper_ieee/).
+- [**Resampling Is Not Always Better: Conditioning Flips the Effect of RePaint Jumps**](docs/final_paper.pdf) — manuscript submitted to ICASSP 2027, currently under review. Source: [`docs/paper_ieee/`](docs/paper_ieee/).
 - [**Inference Protocol Matters**](docs/Technical_report.pdf) — why reverse length has to match training before you trust any `r` sweep.
 
 ## License
